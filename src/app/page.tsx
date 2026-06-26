@@ -9,9 +9,7 @@ import type { ReviewResult } from "@/lib/validation/types";
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<
-    (ReviewResult & { groupedItems: ReviewResult["groupedItems"] }) | null
-  >(null);
+  const [result, setResult] = useState<ReviewResult | null>(null);
 
   const handleReview = async (file: File) => {
     setIsLoading(true);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractPdfFields } from "@/lib/pdf/extract-fields";
-import { runValidation, getFullGroupedItems } from "@/lib/validation/engine";
+import { runValidation } from "@/lib/validation/engine";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -32,10 +32,7 @@ export async function POST(request: NextRequest) {
     const { fields, hasFillableFields } = await extractPdfFields(arrayBuffer);
     const result = runValidation(fields, hasFillableFields, file.name);
 
-    return NextResponse.json({
-      ...result,
-      groupedItems: getFullGroupedItems(result.items),
-    });
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Review error:", error);
     return NextResponse.json(

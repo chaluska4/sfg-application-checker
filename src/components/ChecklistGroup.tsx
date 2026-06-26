@@ -65,7 +65,7 @@ interface ChecklistGroupProps {
 
 export function ChecklistGroup({
   groups,
-  title = "Good Order Review Report",
+  title = "Review Checklist",
   showCompleted = true,
 }: ChecklistGroupProps) {
   const filteredGroups = showCompleted

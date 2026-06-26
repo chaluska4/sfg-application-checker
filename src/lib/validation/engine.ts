@@ -268,10 +268,3 @@ export function runValidation(
     groupedItems: groupItems(items),
   };
 }
-
-/**
- * Returns full checklist grouped by page/section for display.
- */
-export function getFullGroupedItems(items: ChecklistItem[]): GroupedChecklist[] {
-  return groupItems(items);
-}

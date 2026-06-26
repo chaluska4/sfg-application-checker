@@ -6,10 +6,7 @@ const SEVERITY_ORDER: Record<ChecklistItem["status"], number> = {
   completed: 2,
 };
 
-/**
- * Builds the master Good Order Review list: all missing and warning items
- * across every page of the application packet, grouped by page then section.
- */
+/** Missing and warning items grouped by page then section. */
 export function buildMasterReviewGroups(items: ChecklistItem[]): GroupedChecklist[] {
   const reviewItems = items.filter(
     (item) => item.status === "missing" || item.status === "warning"

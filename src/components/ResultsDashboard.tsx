@@ -5,22 +5,19 @@ import { StatusBadge } from "./StatusBadge";
 import { ProgressBar } from "./ProgressBar";
 import { SummaryCards } from "./SummaryCards";
 import { ChecklistGroup } from "./ChecklistGroup";
-import { buildMasterReviewGroups } from "@/lib/reviewList";
+import { buildMasterReviewGroups, groupAllItems } from "@/lib/reviewList";
 import { ArrowLeft, FileText, AlertCircle } from "lucide-react";
 
 interface ResultsDashboardProps {
-  result: ReviewResult & { groupedItems: ReviewResult["groupedItems"] };
+  result: ReviewResult;
   onReset: () => void;
 }
 
 export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
   const issueGroups = buildMasterReviewGroups(result.items);
-  const passedGroups = result.groupedItems
-    .map((g) => ({
-      ...g,
-      items: g.items.filter((i) => i.status === "completed"),
-    }))
-    .filter((g) => g.items.length > 0);
+  const passedGroups = groupAllItems(
+    result.items.filter((item) => item.status === "completed")
+  );
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -79,18 +76,10 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
         </div>
       </div>
 
-      {issueGroups.length > 0 && (
-        <ChecklistGroup
-          groups={issueGroups}
-          title="Issues to Review — Application Packet"
-          showCompleted={false}
-        />
-      )}
-
       <ChecklistGroup
-        groups={result.groupedItems}
-        title="Good Order Review Report"
-        showCompleted
+        groups={issueGroups}
+        title="Issues to Review — Application Packet"
+        showCompleted={false}
       />
 
       {passedGroups.length > 0 && issueGroups.length > 0 && (
