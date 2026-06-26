@@ -18,6 +18,10 @@ export const metadata: Metadata = {
   title: "SFG Form Completeness Checker",
   description:
     "Internal SFG Annuity Advisors tool to review annuity application PDFs for missing information before submission.",
+  icons: {
+    icon: "/sfg-logo.png",
+    apple: "/sfg-logo.png",
+  },
 };
 
 export default function RootLayout({
