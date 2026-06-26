@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-navy: #003366;
+  --color-navy-light: #004080;
+  --color-navy-dark: #002244;
+  --color-gold: #c5a059;
+  --color-gold-light: #d4b76a;
+  --color-gold-muted: #b8924a;
+  --color-red-accent: #c8102e;
+  --color-red-light: #fde8ec;
+  --color-slate-label: #6b8cae;
+  --color-success: #1a7f4b;
+  --color-success-light: #e8f5ee;
+  --color-warning: #b8860b;
+  --color-warning-light: #fff8e7;
+  --color-surface: #f3f4f6;
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-libre), Georgia, "Times New Roman", serif;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-navy);
+  font-family: var(--font-sans);
+}
+
+.font-serif {
+  font-family: var(--font-serif);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+@keyframes progress-fill {
+  from {
+    width: 0%;
+  }
+}
+
+.animate-progress {
+  animation: progress-fill 0.8s ease-out forwards;
+}
