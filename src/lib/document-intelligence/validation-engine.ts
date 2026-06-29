@@ -148,18 +148,13 @@ function evaluateRule(
   const evidence = buildPageEvidence(rule, packet);
 
   if (lowConfidencePacket) {
-    const resolved = resolveFindingLocation(rule, packet, evidence);
-    const pageNote =
-      packet.pageCount > 1
-        ? ` ${packet.pageCount}-page scanned packet — verify using ${resolved.pageLabel}.`
-        : "";
     return makeItem(
       rule,
       packet,
       "needs_manual_verification",
       "low",
       !!rule.condition,
-      `Image-only or low-confidence extraction.${pageNote} Manual verification required — not marked missing.`,
+      undefined,
       evidence
     );
   }

@@ -1,4 +1,5 @@
-import type { ValidationResultItem, GroupedChecklist, FieldStatus } from "@/lib/validation/types";
+import type { ValidationResultItem, GroupedChecklist, FieldStatus, LocationConfidence } from "@/lib/validation/types";
+import { isRedundantFindingMessage } from "@/lib/review-display";
 import { CheckCircle2, XCircle, Eye, HelpCircle, MinusCircle, Info, MapPin } from "lucide-react";
 
 const statusConfig: Record<
@@ -12,7 +13,36 @@ const statusConfig: Record<
   not_applicable: { icon: MinusCircle, iconClass: "text-gray-400", rowClass: "bg-gray-50 border-gray-200", badgeClass: "bg-gray-100 text-gray-500", badge: "Not Applicable" },
 };
 
-function LocationGuidance({ item }: { item: ValidationResultItem }) {
+function LocationGuidance({
+  item,
+  groupLocationConfidence,
+  groupTypicalLocation,
+}: {
+  item: ValidationResultItem;
+  groupLocationConfidence?: LocationConfidence;
+  groupTypicalLocation?: string | null;
+}) {
+  const locationMatchesGroup = item.locationConfidence === groupLocationConfidence;
+
+  if (locationMatchesGroup && groupLocationConfidence === "actual") {
+    return null;
+  }
+
+  if (locationMatchesGroup && groupLocationConfidence === "template") {
+    if (item.typicalLocation && item.typicalLocation !== groupTypicalLocation) {
+      return (
+        <p className="mt-1 text-xs text-gray-600">
+          <span className="font-medium text-navy">Section:</span> {item.typicalLocation}
+        </p>
+      );
+    }
+    return null;
+  }
+
+  if (locationMatchesGroup && groupLocationConfidence === "packet") {
+    return null;
+  }
+
   if (item.locationConfidence === "actual" && item.actualPageLabel) {
     return (
       <p className="mt-1 text-xs text-gray-600">
@@ -48,9 +78,18 @@ function LocationGuidance({ item }: { item: ValidationResultItem }) {
   return null;
 }
 
-function ChecklistRow({ item }: { item: ValidationResultItem }) {
+function ChecklistRow({
+  item,
+  groupLocationConfidence,
+  groupTypicalLocation,
+}: {
+  item: ValidationResultItem;
+  groupLocationConfidence?: LocationConfidence;
+  groupTypicalLocation?: string | null;
+}) {
   const config = statusConfig[item.status];
   const Icon = config.icon;
+  const showMessage = item.message && !isRedundantFindingMessage(item.message);
 
   return (
     <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${config.rowClass}`}>
@@ -68,13 +107,17 @@ function ChecklistRow({ item }: { item: ValidationResultItem }) {
             {config.badge}
           </span>
         </div>
-        <LocationGuidance item={item} />
+        <LocationGuidance
+          item={item}
+          groupLocationConfidence={groupLocationConfidence}
+          groupTypicalLocation={groupTypicalLocation}
+        />
         {item.manualReviewHint &&
           (item.status === "needs_manual_verification" ||
             item.status === "conditional_review") && (
             <p className="mt-1.5 text-xs italic text-gray-500">{item.manualReviewHint}</p>
           )}
-        {item.message && <p className="mt-1 text-xs text-gray-600">{item.message}</p>}
+        {showMessage && <p className="mt-1 text-xs text-gray-600">{item.message}</p>}
       </div>
     </div>
   );
@@ -141,7 +184,12 @@ export function ChecklistGroup({
           </div>
           <div className="space-y-2 p-4">
             {group.items.map((item) => (
-              <ChecklistRow key={item.ruleId} item={item} />
+              <ChecklistRow
+                key={item.ruleId}
+                item={item}
+                groupLocationConfidence={group.locationConfidence}
+                groupTypicalLocation={group.typicalLocation}
+              />
             ))}
           </div>
         </div>

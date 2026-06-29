@@ -6,6 +6,10 @@ import { ProgressBar } from "./ProgressBar";
 import { SummaryCards } from "./SummaryCards";
 import { ChecklistGroup } from "./ChecklistGroup";
 import { buildMasterReviewGroups, groupAllItems } from "@/lib/reviewList";
+import {
+  buildDocumentIntelligenceNotice,
+  shouldShowStandaloneDisclaimer,
+} from "@/lib/review-display";
 import { ArrowLeft, FileText, AlertCircle, Info } from "lucide-react";
 
 interface ResultsDashboardProps {
@@ -13,17 +17,13 @@ interface ResultsDashboardProps {
   onReset: () => void;
 }
 
-const EXTRACTION_LABELS = {
-  embedded_text: "Embedded text extracted from PDF",
-  image_only: "Image-only / scanned pages — manual verification required",
-  mixed: "Mixed embedded text and image-only pages",
-};
-
 export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
   const issueGroups = buildMasterReviewGroups(result.items);
   const presentGroups = groupAllItems(
     result.items.filter((item) => item.status === "present")
   );
+  const showIntelligenceNotice = result.extractionMode !== "embedded_text";
+  const intelligenceNotice = buildDocumentIntelligenceNotice(result);
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -43,20 +43,22 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
         </div>
       </div>
 
-      {result.extractionMode !== "embedded_text" && (
-        <div className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      {showIntelligenceNotice && (
+        <div className="flex items-start gap-3 rounded-2xl border border-navy/15 bg-navy/[0.03] p-5 shadow-sm">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-navy" />
           <div>
             <p className="font-serif font-semibold text-navy">Document Intelligence Notice</p>
-            <p className="mt-1 text-sm text-gray-600">{EXTRACTION_LABELS[result.extractionMode]}</p>
+            <p className="mt-1 text-sm leading-relaxed text-gray-700">{intelligenceNotice}</p>
           </div>
         </div>
       )}
 
-      <div className="flex items-start gap-3 rounded-2xl border border-gold/30 bg-gold/5 p-4">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-gold-muted" />
-        <p className="text-sm text-gray-700">{result.disclaimer}</p>
-      </div>
+      {shouldShowStandaloneDisclaimer(result.extractionMode) && (
+        <div className="flex items-start gap-3 rounded-2xl border border-gold/30 bg-gold/5 p-4">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-gold-muted" />
+          <p className="text-sm text-gray-700">{result.disclaimer}</p>
+        </div>
+      )}
 
       <div className="rounded-3xl bg-white p-6 shadow-xl sm:p-8">
         <p className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-slate-label">
