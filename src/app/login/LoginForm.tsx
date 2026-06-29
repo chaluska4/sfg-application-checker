@@ -4,6 +4,7 @@ import { useState, FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SfgLogo } from "@/components/SfgLogo";
 import { Loader2, Lock } from "lucide-react";
+import { isSignInButtonDisabled } from "./login-form-utils";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -82,6 +83,7 @@ export default function LoginForm() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onInput={(e) => setPassword(e.currentTarget.value)}
                     disabled={isLoading}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 py-3 pl-10 pr-4 text-sm text-navy outline-none transition-colors focus:border-gold focus:bg-white focus:ring-2 focus:ring-gold/20 disabled:opacity-60"
                     placeholder="Enter your access password"
@@ -100,7 +102,7 @@ export default function LoginForm() {
 
               <button
                 type="submit"
-                disabled={isLoading || !password}
+                disabled={isSignInButtonDisabled(password, isLoading)}
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-navy py-3.5 text-sm font-semibold text-white transition-colors hover:bg-navy-light disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isLoading ? (
