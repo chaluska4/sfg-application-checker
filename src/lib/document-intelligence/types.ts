@@ -47,13 +47,13 @@ export interface PageAnalysis {
 export interface DetectedCheckbox {
   label: string;
   checked: boolean;
-  page: number;
+  page: number | null;
   confidence: ConfidenceLevel;
 }
 
 export interface DetectedSignature {
   label: string;
-  page: number;
+  page: number | null;
   signed: boolean;
   signerPreview?: string;
   confidence: ConfidenceLevel;
@@ -61,7 +61,7 @@ export interface DetectedSignature {
 
 export interface DetectedDate {
   label: string;
-  page: number;
+  page: number | null;
   present: boolean;
   confidence: ConfidenceLevel;
 }
@@ -71,7 +71,7 @@ export interface SafeExtractedValue {
   label: string;
   present: boolean;
   maskedPreview?: string;
-  page: number;
+  page: number | null;
   confidence: ConfidenceLevel;
 }
 
@@ -128,7 +128,9 @@ export interface ValidationRule {
 export interface ValidationResultItem {
   ruleId: string;
   label: string;
-  page: number;
+  /** PDF page number when known; null for packet-level findings */
+  page: number | null;
+  pageLabel: string;
   section: string;
   documentType: PageClassification;
   status: FieldStatus;
@@ -160,7 +162,8 @@ export interface ValidationResult {
 }
 
 export interface GroupedChecklist {
-  page: number;
+  page: number | null;
+  pageLabel: string;
   section: string;
   documentType: PageClassification;
   items: ValidationResultItem[];

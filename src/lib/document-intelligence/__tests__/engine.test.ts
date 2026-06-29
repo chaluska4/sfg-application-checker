@@ -118,6 +118,75 @@ describe("conditional rules", () => {
   });
 });
 
+describe("page number mapping", () => {
+  it("maps findings to the page where label text appears in multi-page PDFs", () => {
+    const pages = [
+      mockPage("", 1),
+      mockPage("Individual Annuity Application Owner Information Annuitant", 2),
+      mockPage("Beneficiary Designation Tax Qualification Premium Payment", 3),
+      mockPage("Replacement Notice existing coverage", 12),
+    ];
+    const items = validatePacketLogic(
+      pages.map((p) => p.rawText).join("\n"),
+      pages
+    );
+
+    const owner = items.find((i) => i.ruleId === "owner-info");
+    const beneficiary = items.find((i) => i.ruleId === "beneficiary");
+    const replacement = items.find((i) => i.ruleId === "replacement-notice");
+
+    expect(owner?.page).toBe(2);
+    expect(owner?.pageLabel).toBe("Page 2");
+    expect(beneficiary?.page).toBe(3);
+    expect(items.filter((i) => i.page === 1 && i.status !== "not_applicable").length).toBe(0);
+    expect(replacement?.pageLabel).toMatch(/Page 12|Packet-level review/);
+  });
+
+  it("does not assign all findings to Page 1 for a 34-page scanned packet", () => {
+    const pages: PageAnalysis[] = Array.from({ length: 34 }, (_, index) => ({
+      pageNumber: index + 1,
+      rawText: "",
+      normalizedText: "",
+      charCount: 0,
+      hasEmbeddedText: false,
+      classification: "unknown" as const,
+      classificationConfidence: "low" as const,
+    }));
+
+    const items = validatePacketLogic("", pages);
+    const assignedToPageOne = items.filter((i) => i.page === 1);
+    expect(assignedToPageOne.length).toBe(0);
+    expect(items.every((i) => i.pageLabel.length > 0)).toBe(true);
+  });
+
+  it("returns Needs Manual Verification with packet-level label for image-only packets", () => {
+    const pages: PageAnalysis[] = Array.from({ length: 34 }, (_, index) => ({
+      pageNumber: index + 1,
+      rawText: "",
+      normalizedText: "",
+      charCount: 0,
+      hasEmbeddedText: false,
+      classification: "unknown" as const,
+      classificationConfidence: "low" as const,
+    }));
+
+    const items = validatePacketLogic("", pages);
+    expect(items.some((i) => i.status === "needs_manual_verification")).toBe(true);
+    expect(items.filter((i) => i.status === "needs_manual_verification").every((i) => i.page === null)).toBe(true);
+    expect(
+      items.filter((i) => i.status === "needs_manual_verification").every((i) => i.pageLabel === "Packet-level review")
+    ).toBe(true);
+  });
+
+  it("uses Packet-level review when no page can be confidently identified", () => {
+    const pages = [mockPage("Unrelated cover memo only", 1)];
+    const items = validatePacketLogic(pages[0].rawText, pages);
+    const allocationPage = items.find((i) => i.ruleId === "allocation-page");
+    expect(allocationPage?.page).toBeNull();
+    expect(allocationPage?.pageLabel).toBe("Packet-level review");
+  });
+});
+
 describe("scanned PDF behavior", () => {
   it("marks items needs manual verification not missing for image-only", () => {
     const pages: PageAnalysis[] = [

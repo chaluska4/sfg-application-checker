@@ -1,4 +1,5 @@
 import type { ValidationResultItem, GroupedChecklist, FieldStatus } from "@/lib/validation/types";
+import { comparePageGroups } from "@/lib/document-intelligence/resolve-finding-page";
 
 const SEVERITY_ORDER: Record<FieldStatus, number> = {
   missing: 0,
@@ -19,10 +20,11 @@ export function buildMasterReviewGroups(items: ValidationResultItem[]): GroupedC
   const map = new Map<string, GroupedChecklist>();
 
   for (const item of reviewItems) {
-    const key = `${item.page}::${item.section}`;
+    const key = `${item.pageLabel}::${item.section}`;
     if (!map.has(key)) {
       map.set(key, {
         page: item.page,
+        pageLabel: item.pageLabel,
         section: item.section,
         documentType: item.documentType,
         items: [],
@@ -32,7 +34,7 @@ export function buildMasterReviewGroups(items: ValidationResultItem[]): GroupedC
   }
 
   return [...map.values()]
-    .sort((a, b) => a.page - b.page || a.section.localeCompare(b.section))
+    .sort(comparePageGroups)
     .map((group) => ({
       ...group,
       items: [...group.items].sort(
@@ -44,10 +46,11 @@ export function buildMasterReviewGroups(items: ValidationResultItem[]): GroupedC
 export function groupAllItems(items: ValidationResultItem[]): GroupedChecklist[] {
   const map = new Map<string, GroupedChecklist>();
   for (const item of items) {
-    const key = `${item.page}::${item.section}`;
+    const key = `${item.pageLabel}::${item.section}`;
     if (!map.has(key)) {
       map.set(key, {
         page: item.page,
+        pageLabel: item.pageLabel,
         section: item.section,
         documentType: item.documentType,
         items: [],
@@ -55,5 +58,5 @@ export function groupAllItems(items: ValidationResultItem[]): GroupedChecklist[]
     }
     map.get(key)!.items.push(item);
   }
-  return [...map.values()].sort((a, b) => a.page - b.page || a.section.localeCompare(b.section));
+  return [...map.values()].sort(comparePageGroups);
 }

@@ -33,8 +33,13 @@ function buildPacket(fullText: string, pages?: PageAnalysis[]) {
   return {
     fileName: "test.pdf",
     pageCount: pageList.length,
-    extractionMode: fullText.trim().length < 20 ? ("image_only" as const) : ("embedded_text" as const),
-    hasEmbeddedText: fullText.trim().length >= 20,
+    extractionMode:
+      pageList.every((p) => !p.hasEmbeddedText)
+        ? ("image_only" as const)
+        : pageList.some((p) => !p.hasEmbeddedText)
+          ? ("mixed" as const)
+          : ("embedded_text" as const),
+    hasEmbeddedText: pageList.some((p) => p.hasEmbeddedText),
     pages: pageList,
     fullText,
     checkboxes,

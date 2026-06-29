@@ -1,6 +1,7 @@
 import type { DocumentPacket, PageAnalysis, SafeExtractedValue } from "./types";
 import { hasDateNearLabels } from "./detect-dates";
 import { pageTextConfidence } from "./confidence";
+import { findPageForAllocation } from "./resolve-finding-page";
 
 const SSN_PATTERN = /\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b/;
 const CURRENCY_PATTERN = /\$[\d,]+(?:\.\d{2})?/g;
@@ -71,7 +72,7 @@ export function extractKnownValues(pages: PageAnalysis[], fullText: string): Saf
         key: spec.key,
         label: spec.label,
         present: false,
-        page: 1,
+        page: null,
         confidence: "low",
       });
     }
@@ -83,7 +84,7 @@ export function extractKnownValues(pages: PageAnalysis[], fullText: string): Saf
     label: "Allocation Total",
     present: allocationTotal !== null,
     maskedPreview: allocationTotal !== null ? `${allocationTotal}%` : undefined,
-    page: findAllocationPage(pages),
+    page: findPageForAllocation(pages),
     confidence: allocationTotal !== null ? (allocationTotal === 100 ? "high" : "medium") : "low",
   });
 
@@ -101,11 +102,6 @@ export function computeAllocationTotal(fullText: string): number | null {
   if (percents.length < 2) return null;
   const sum = percents.reduce((a, b) => a + b, 0);
   return Math.round(sum * 100) / 100;
-}
-
-function findAllocationPage(pages: PageAnalysis[]): number {
-  const p = pages.find((pg) => pg.classification === "initial_premium_allocation");
-  return p?.pageNumber ?? 1;
 }
 
 function maskSsn(raw: string): string {

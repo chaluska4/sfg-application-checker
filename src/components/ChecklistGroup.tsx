@@ -72,10 +72,10 @@ export function ChecklistGroup({
     <div className="space-y-5">
       {title && <h3 className="font-serif text-xl font-semibold text-navy">{title}</h3>}
       {filteredGroups.map((group) => (
-        <div key={`${group.page}-${group.section}`} className="overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-gray-100">
+        <div key={`${group.pageLabel}-${group.section}`} className="overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-gray-100">
           <div className="border-b border-gray-100 bg-navy/[0.03] px-5 py-3">
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-label">
-              Page {group.page}
+              {group.pageLabel}
             </p>
             <h4 className="font-serif text-base font-semibold text-navy">{group.section}</h4>
           </div>
