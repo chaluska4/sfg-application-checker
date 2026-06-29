@@ -25,7 +25,7 @@ import {
   type PageEvidence,
 } from "./resolve-finding-page";
 import type { OcrProvider } from "./ocr";
-import { deriveExtractionMode, pageHasUsableText } from "./ocr";
+import { deriveExtractionMode, pageHasUsableText, resolveOcrProvider } from "./ocr";
 import { appendPacketFormsReview, isRuleConditionUndetermined } from "./packet-forms-review";
 
 const DISCLAIMER =
@@ -48,9 +48,12 @@ export async function runDocumentIntelligence(
   rules: ValidationRule[] = equitrustMarketEarlyNjRules,
   options?: DocumentIntelligenceOptions
 ): Promise<ReviewResult> {
+  const ocrProvider =
+    options?.ocrProvider !== undefined ? options.ocrProvider : resolveOcrProvider();
+
   const { pages, pageCount, fullText, hasEmbeddedText, hasOcrText } = await extractPdfPages(
     pdfBuffer,
-    { ocrProvider: options?.ocrProvider, fileName }
+    { ocrProvider, fileName }
   );
   const checkboxes = detectCheckboxes(pages);
   const signatures = detectSignatures(pages);

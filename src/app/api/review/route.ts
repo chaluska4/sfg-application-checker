@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { runDocumentIntelligence } from "@/lib/document-intelligence";
+import { resolveOcrProvider } from "@/lib/document-intelligence/ocr/resolve-ocr-provider";
 import {
   isPdfBuffer,
   isPdfWithinSizeLimit,
@@ -44,7 +45,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await runDocumentIntelligence(arrayBuffer, sanitizeFileName(file.name));
+    const ocrProvider = resolveOcrProvider();
+    const result = await runDocumentIntelligence(
+      arrayBuffer,
+      sanitizeFileName(file.name),
+      undefined,
+      { ocrProvider }
+    );
 
     return NextResponse.json(result);
   } catch (error) {

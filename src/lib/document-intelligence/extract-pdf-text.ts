@@ -52,10 +52,22 @@ export async function extractPdfPages(
   }
 
   const ocrProvider = options?.ocrProvider;
-  const enrichedPages =
-    ocrProvider?.isAvailable()
-      ? await enrichPagesWithOcr(pages, options?.fileName ?? "document.pdf", ocrProvider)
-      : pages;
+  if (!ocrProvider?.isAvailable()) {
+    return {
+      pages,
+      pageCount: totalPages,
+      fullText: pages.map((p) => p.rawText).join("\n\n"),
+      hasEmbeddedText: anyText,
+      hasOcrText: false,
+    };
+  }
+
+  const { pages: enrichedPages } = await enrichPagesWithOcr(
+    pages,
+    options?.fileName ?? "document.pdf",
+    ocrProvider,
+    pdfBuffer
+  );
 
   return {
     pages: enrichedPages,

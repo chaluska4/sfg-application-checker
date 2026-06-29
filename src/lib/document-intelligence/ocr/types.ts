@@ -20,6 +20,13 @@ export interface OcrPageResult {
   fullText: string;
   lines: OcrTextLine[];
   confidence: ConfidenceLevel;
+  selectionMarks?: OcrSelectionMark[];
+}
+
+export interface OcrSelectionMark {
+  state: "selected" | "unselected";
+  confidence: ConfidenceLevel;
+  boundingBox?: OcrBoundingBox;
 }
 
 export interface OcrResult {
@@ -36,4 +43,6 @@ export interface OcrPageRequest {
 export interface OcrRecognizeRequest {
   fileName: string;
   pages: OcrPageRequest[];
+  /** Full PDF bytes — required for cloud OCR providers such as Azure. */
+  pdfBuffer?: ArrayBuffer;
 }

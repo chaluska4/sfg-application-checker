@@ -23,8 +23,8 @@ describe("OCR integration", () => {
   it("keeps scanned-packet manual-review behavior when OCR is disabled", async () => {
     const pages = [emptyScannedPage(1), emptyScannedPage(2)];
     const enriched = await enrichPagesWithOcr(pages, "scan.pdf", disabledOcrProvider);
-    expect(enriched.every((p) => !p.hasOcrText)).toBe(true);
-    expect(enriched[0].rawText).toBe("");
+    expect(enriched.pages.every((p) => !p.hasOcrText)).toBe(true);
+    expect(enriched.pages[0].rawText).toBe("");
   });
 
   it("feeds mocked OCR text into validation with actualPage, confidence, and boundingBox", async () => {
@@ -107,7 +107,7 @@ describe("OCR integration", () => {
       },
     });
 
-    const enriched = await enrichPagesWithOcr([embedded, scanned], "mixed.pdf", provider);
+    const { pages: enriched } = await enrichPagesWithOcr([embedded, scanned], "mixed.pdf", provider);
     expect(enriched[0].hasOcrText).toBeFalsy();
     expect(enriched[0].textSource).toBe("embedded");
     expect(enriched[1].hasOcrText).toBe(true);
