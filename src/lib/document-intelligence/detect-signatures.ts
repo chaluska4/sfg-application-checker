@@ -1,4 +1,5 @@
 import type { ConfidenceLevel, DetectedSignature, PageAnalysis } from "./types";
+import { pageHasUsableText } from "./ocr";
 
 const ESIGN_PATTERNS = [
   /e\s*signed/i,
@@ -19,7 +20,7 @@ export function detectSignatures(pages: PageAnalysis[]): DetectedSignature[] {
   const results: DetectedSignature[] = [];
 
   for (const page of pages) {
-    if (!page.hasEmbeddedText) {
+    if (!pageHasUsableText(page)) {
       for (const { label } of SIGNATURE_LABELS) {
         if (
           page.classification === "application_page_3_signatures" ||

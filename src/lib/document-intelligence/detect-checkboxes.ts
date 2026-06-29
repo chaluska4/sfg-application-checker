@@ -1,4 +1,5 @@
 import type { DetectedCheckbox, PageAnalysis } from "./types";
+import { pageHasUsableText } from "./ocr";
 
 const CHECK_MARKS = /(?:\[x\]|\[X\]|\(x\)|\(X\)|☑|✓|✔|■)/;
 const YES_NEAR = /\byes\b/i;
@@ -13,7 +14,7 @@ export function detectCheckboxes(pages: PageAnalysis[]): DetectedCheckbox[] {
   ];
 
   for (const page of pages) {
-    if (!page.hasEmbeddedText) continue;
+    if (!pageHasUsableText(page)) continue;
     const text = page.rawText;
 
     for (const { label, patterns } of labels) {

@@ -16,13 +16,16 @@ import { detectDates } from "./detect-dates";
 import { extractKnownValues, detectPacketFlags } from "./extract-known-values";
 import { hasPageType } from "./classify-pages";
 import { hasDateNearLabels } from "./detect-dates";
-import { minConfidence, pageTextConfidence } from "./confidence";
+import { minConfidence } from "./confidence";
 import { FORM_NAME, equitrustMarketEarlyNjRules } from "./templates/equitrust-marketearly-nj";
 import {
   comparePageGroups,
   resolveFindingLocation,
+  resolveEvidenceBoundingBox,
   type PageEvidence,
 } from "./resolve-finding-page";
+import type { OcrProvider } from "./ocr";
+import { deriveExtractionMode, pageHasUsableText } from "./ocr";
 
 const DISCLAIMER =
   "Automated review supports manual due diligence. Final submission readiness must be confirmed by an authorized SFG reviewer.";
@@ -34,29 +37,34 @@ const STATUS_LABELS: Record<ReviewStatus, string> = {
   "manual-review": "Manual Review Needed",
 };
 
+export interface DocumentIntelligenceOptions {
+  ocrProvider?: OcrProvider | null;
+}
+
 export async function runDocumentIntelligence(
   pdfBuffer: ArrayBuffer,
   fileName: string,
-  rules: ValidationRule[] = equitrustMarketEarlyNjRules
+  rules: ValidationRule[] = equitrustMarketEarlyNjRules,
+  options?: DocumentIntelligenceOptions
 ): Promise<ReviewResult> {
-  const { pages, pageCount, fullText, hasEmbeddedText } = await extractPdfPages(pdfBuffer);
+  const { pages, pageCount, fullText, hasEmbeddedText, hasOcrText } = await extractPdfPages(
+    pdfBuffer,
+    { ocrProvider: options?.ocrProvider, fileName }
+  );
   const checkboxes = detectCheckboxes(pages);
   const signatures = detectSignatures(pages);
   const dates = detectDates(pages);
   const values = extractKnownValues(pages, fullText);
   const flags = detectPacketFlags(pages, fullText, checkboxes);
 
-  const extractionMode: ExtractionMode = !hasEmbeddedText
-    ? "image_only"
-    : pages.every((p) => p.hasEmbeddedText)
-      ? "embedded_text"
-      : "mixed";
+  const extractionMode: ExtractionMode = deriveExtractionMode(pages);
 
   const packet: DocumentPacket = {
     fileName,
     pageCount,
     extractionMode,
     hasEmbeddedText,
+    hasOcrText,
     pages,
     fullText,
     checkboxes,
@@ -99,7 +107,8 @@ function validatePacket(
   rules: ValidationRule[]
 ): ValidationResultItem[] {
   const items: ValidationResultItem[] = [];
-  const lowConfidencePacket = !packet.hasEmbeddedText || packet.extractionMode === "image_only";
+  const hasUsableText = packet.hasEmbeddedText || Boolean(packet.hasOcrText) || packet.pages.some(pageHasUsableText);
+  const lowConfidencePacket = !hasUsableText || packet.extractionMode === "image_only";
 
   for (const rule of rules) {
     const isConditional = !!rule.condition;
@@ -164,7 +173,7 @@ function evaluateRule(
       const required = rule.pageTypes ?? [];
       const found = required.some((t) => hasPageType(packet.pages, t));
       if (found) return makeItem(rule, packet, "present", "high", !!rule.condition, undefined, evidence);
-      const pageConfidence = packet.pages.some((p) => p.hasEmbeddedText) ? "medium" : "low";
+      const pageConfidence = packet.pages.some(pageHasUsableText) ? "medium" : "low";
       return makeItem(
         rule,
         packet,
@@ -183,7 +192,7 @@ function evaluateRule(
       };
       if (sig.signed) return makeItem(rule, packet, "present", sig.confidence, !!rule.condition, undefined, sigEvidence);
       const pageHasSigSection = packet.pages.some(
-        (p) => rule.pageTypes?.includes(p.classification) && p.hasEmbeddedText
+        (p) => rule.pageTypes?.includes(p.classification) && pageHasUsableText(p)
       );
       if (!pageHasSigSection)
         return makeItem(rule, packet, "needs_manual_verification", "low", !!rule.condition, "Signature area not confidently detected in extracted text.", sigEvidence);
@@ -221,7 +230,7 @@ function evaluateRule(
         valuePage: labelPage ?? valueEvidence.valuePage,
       };
       const textHit = labelPage !== null || rule.labelPatterns?.some((p) => p.test(packet.fullText));
-      const pageConf = pageTextConfidence(packet.fullText.length, packet.hasEmbeddedText);
+      const pageConf = packet.pages.some(pageHasUsableText) ? "medium" : "low";
 
       if (textHit && pageConf !== "low")
         return makeItem(rule, packet, "needs_manual_verification", "medium", !!rule.condition, "Section label found but value not confidently extracted.", labelEvidence);
@@ -237,11 +246,19 @@ function evaluateRule(
 function buildPageEvidence(rule: ValidationRule, packet: DocumentPacket): PageEvidence {
   const valueKey = mapRuleToValueKey(rule.id);
   const extracted = packet.values.find((v) => v.key === valueKey);
+  const valuePage = extracted?.page ?? undefined;
+  const signaturePage = packet.signatures.find((s) => s.label === rule.signatureLabel)?.page ?? undefined;
+  const checkboxPage = packet.checkboxes.find((c) => c.label === rule.checkboxLabel)?.page ?? undefined;
+  const datePage = findDatePageForRule(rule, packet) ?? undefined;
+  const evidencePage = valuePage ?? signaturePage ?? checkboxPage ?? datePage;
+  const boundingBox = resolveEvidenceBoundingBox(rule, packet, evidencePage) ?? undefined;
+
   return {
-    valuePage: extracted?.page ?? undefined,
-    signaturePage: packet.signatures.find((s) => s.label === rule.signatureLabel)?.page ?? undefined,
-    checkboxPage: packet.checkboxes.find((c) => c.label === rule.checkboxLabel)?.page ?? undefined,
-    datePage: findDatePageForRule(rule, packet) ?? undefined,
+    valuePage,
+    signaturePage,
+    checkboxPage,
+    datePage,
+    boundingBox,
   };
 }
 
@@ -314,6 +331,7 @@ function makeItem(
     expectedPageLabel: location.expectedPageLabel,
     page: location.actualPage,
     pageLabel: location.pageLabel,
+    boundingBox: evidence.boundingBox ?? null,
   };
 }
 

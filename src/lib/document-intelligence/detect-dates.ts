@@ -1,4 +1,5 @@
 import type { ConfidenceLevel, DetectedDate, PageAnalysis } from "./types";
+import { pageHasUsableText } from "./ocr";
 
 const DATE_PATTERNS = [
   /\b(0?[1-9]|1[0-2])[\/\-](0?[1-9]|[12]\d|3[01])[\/\-](\d{2}|\d{4})\b/g,
@@ -17,7 +18,7 @@ export function detectDates(pages: PageAnalysis[]): DetectedDate[] {
   const results: DetectedDate[] = [];
 
   for (const page of pages) {
-    if (!page.hasEmbeddedText) continue;
+    if (!pageHasUsableText(page)) continue;
     const text = page.rawText;
     const hasDateLabel = DATE_LABELS.some((p) => p.test(text));
     const hasDateValue = DATE_PATTERNS.some((p) => {

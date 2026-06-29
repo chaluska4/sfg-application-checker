@@ -2,14 +2,25 @@ import { extractText, getDocumentProxy } from "unpdf";
 import type { PageAnalysis } from "./types";
 import { pageTextConfidence } from "./confidence";
 import { classifyPage } from "./classify-pages";
+import type { OcrProvider } from "./ocr";
+import { enrichPagesWithOcr } from "./ocr";
 
 const MIN_TEXT_CHARS = 20;
 
-export async function extractPdfPages(pdfBuffer: ArrayBuffer): Promise<{
+export interface ExtractPdfOptions {
+  ocrProvider?: OcrProvider | null;
+  fileName?: string;
+}
+
+export async function extractPdfPages(
+  pdfBuffer: ArrayBuffer,
+  options?: ExtractPdfOptions
+): Promise<{
   pages: PageAnalysis[];
   pageCount: number;
   fullText: string;
   hasEmbeddedText: boolean;
+  hasOcrText: boolean;
 }> {
   const pdf = await getDocumentProxy(new Uint8Array(pdfBuffer));
   const { totalPages, text } = await extractText(pdf, { mergePages: false });
@@ -32,6 +43,7 @@ export async function extractPdfPages(pdfBuffer: ArrayBuffer): Promise<{
       normalizedText,
       charCount: rawText.length,
       hasEmbeddedText,
+      textSource: hasEmbeddedText ? "embedded" : "none",
       classification,
       classificationConfidence: hasEmbeddedText
         ? confidence
@@ -39,11 +51,18 @@ export async function extractPdfPages(pdfBuffer: ArrayBuffer): Promise<{
     });
   }
 
+  const ocrProvider = options?.ocrProvider;
+  const enrichedPages =
+    ocrProvider?.isAvailable()
+      ? await enrichPagesWithOcr(pages, options?.fileName ?? "document.pdf", ocrProvider)
+      : pages;
+
   return {
-    pages,
+    pages: enrichedPages,
     pageCount: totalPages,
-    fullText: pages.map((p) => p.rawText).join("\n\n"),
+    fullText: enrichedPages.map((p) => p.rawText).join("\n\n"),
     hasEmbeddedText: anyText,
+    hasOcrText: enrichedPages.some((p) => Boolean(p.hasOcrText)),
   };
 }
 

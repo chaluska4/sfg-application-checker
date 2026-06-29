@@ -1,2 +1,4 @@
-export { runDocumentIntelligence } from "./validation-engine";
-export type { ReviewResult, FieldStatus, ChecklistItem, ReviewStatus } from "./types";
+export { runDocumentIntelligence, type DocumentIntelligenceOptions } from "./validation-engine";
+export type { ReviewResult, FieldStatus, ChecklistItem, ReviewStatus, OcrBoundingBox } from "./types";
+export type { OcrProvider } from "./ocr";
+export { disabledOcrProvider, createMockOcrProvider } from "./ocr";

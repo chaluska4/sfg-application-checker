@@ -2,6 +2,7 @@ import type { DocumentPacket, PageAnalysis, SafeExtractedValue } from "./types";
 import { hasDateNearLabels } from "./detect-dates";
 import { pageTextConfidence } from "./confidence";
 import { findPageForAllocation } from "./resolve-finding-page";
+import { ocrConfidenceForPage, pageHasUsableText } from "./ocr";
 
 const SSN_PATTERN = /\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b/;
 const CURRENCY_PATTERN = /\$[\d,]+(?:\.\d{2})?/g;
@@ -33,14 +34,16 @@ export function extractKnownValues(pages: PageAnalysis[], fullText: string): Saf
     let best: SafeExtractedValue | null = null;
 
     for (const page of pages) {
-      if (!page.hasEmbeddedText) continue;
+      if (!pageHasUsableText(page)) continue;
       const text = page.rawText;
       const labelHit = spec.labelPatterns.some((p) => p.test(text));
       if (!labelHit && !spec.valuePattern?.test(text)) continue;
 
       let present = labelHit;
       let maskedPreview: string | undefined;
-      let confidence = pageTextConfidence(page.charCount, true);
+      let confidence = page.hasEmbeddedText
+        ? pageTextConfidence(page.charCount, true)
+        : ocrConfidenceForPage(page);
 
       if (spec.valuePattern) {
         const match = text.match(spec.valuePattern);
@@ -67,7 +70,7 @@ export function extractKnownValues(pages: PageAnalysis[], fullText: string): Saf
     }
 
     if (best) values.push(best);
-    else if (pages.some((p) => p.hasEmbeddedText)) {
+    else if (pages.some(pageHasUsableText)) {
       values.push({
         key: spec.key,
         label: spec.label,

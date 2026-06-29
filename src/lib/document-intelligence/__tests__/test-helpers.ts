@@ -6,6 +6,13 @@ import { detectDates } from "../detect-dates";
 import { extractKnownValues, detectPacketFlags } from "../extract-known-values";
 import { runValidationOnPacket } from "../validation-engine";
 import { equitrustMarketEarlyNjRules } from "../templates/equitrust-marketearly-nj";
+import {
+  createMockOcrProvider,
+  deriveExtractionMode,
+  enrichPagesWithOcr,
+  packetHasOcrText,
+  type MockOcrProviderOptions,
+} from "../ocr";
 
 function buildPacket(fullText: string, pages?: PageAnalysis[]) {
   const pageList =
@@ -19,6 +26,7 @@ function buildPacket(fullText: string, pages?: PageAnalysis[]) {
         normalizedText: normalized,
         charCount: text.length,
         hasEmbeddedText: text.trim().length >= 20,
+        textSource: text.trim().length >= 20 ? ("embedded" as const) : ("none" as const),
         classification,
         classificationConfidence: confidence,
       } satisfies PageAnalysis;
@@ -33,13 +41,9 @@ function buildPacket(fullText: string, pages?: PageAnalysis[]) {
   return {
     fileName: "test.pdf",
     pageCount: pageList.length,
-    extractionMode:
-      pageList.every((p) => !p.hasEmbeddedText)
-        ? ("image_only" as const)
-        : pageList.some((p) => !p.hasEmbeddedText)
-          ? ("mixed" as const)
-          : ("embedded_text" as const),
+    extractionMode: deriveExtractionMode(pageList),
     hasEmbeddedText: pageList.some((p) => p.hasEmbeddedText),
+    hasOcrText: packetHasOcrText(pageList),
     pages: pageList,
     fullText,
     checkboxes,
@@ -52,4 +56,14 @@ function buildPacket(fullText: string, pages?: PageAnalysis[]) {
 
 export function validatePacketLogic(fullText: string, pages?: PageAnalysis[]) {
   return runValidationOnPacket(buildPacket(fullText, pages), equitrustMarketEarlyNjRules);
+}
+
+export async function validatePacketWithMockOcr(
+  scannedPages: PageAnalysis[],
+  mockOcr: MockOcrProviderOptions
+) {
+  const provider = createMockOcrProvider(mockOcr);
+  const enriched = await enrichPagesWithOcr(scannedPages, "test.pdf", provider);
+  const fullText = enriched.map((p) => p.rawText).join("\n\n");
+  return runValidationOnPacket(buildPacket(fullText, enriched), equitrustMarketEarlyNjRules);
 }

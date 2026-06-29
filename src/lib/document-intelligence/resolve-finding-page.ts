@@ -1,12 +1,14 @@
 import type {
   DocumentPacket,
   LocationConfidence,
+  OcrBoundingBox,
   PageAnalysis,
   PageClassification,
   ReviewItemLocation,
   ValidationRule,
 } from "./types";
 import { getLocationForRule } from "./templates/equitrust-template-metadata";
+import { findOcrBoundingBoxForPatterns, pageHasUsableText } from "./ocr";
 
 export const PACKET_LEVEL_LABEL = "Packet-level review";
 
@@ -25,6 +27,7 @@ export interface PageEvidence {
   signaturePage?: number;
   checkboxPage?: number;
   datePage?: number;
+  boundingBox?: OcrBoundingBox;
 }
 
 export interface FindingLocation {
@@ -80,7 +83,18 @@ function resolveActualPageNumber(
 
 function isActualPageConfident(packet: DocumentPacket, pageNumber: number): boolean {
   const pageMeta = packet.pages.find((p) => p.pageNumber === pageNumber);
-  return Boolean(pageMeta?.hasEmbeddedText);
+  return Boolean(pageMeta && pageHasUsableText(pageMeta));
+}
+
+export function resolveEvidenceBoundingBox(
+  rule: ValidationRule,
+  packet: DocumentPacket,
+  pageNumber: number | null | undefined
+): OcrBoundingBox | null {
+  if (pageNumber == null || !rule.labelPatterns?.length) return null;
+  const page = packet.pages.find((p) => p.pageNumber === pageNumber);
+  if (!page?.ocrLines?.length) return null;
+  return findOcrBoundingBoxForPatterns(page.ocrLines, rule.labelPatterns);
 }
 
 export function resolveFindingLocation(

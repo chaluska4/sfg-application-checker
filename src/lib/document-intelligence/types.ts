@@ -1,3 +1,5 @@
+import type { OcrBoundingBox } from "./ocr/types";
+
 export type ConfidenceLevel = "high" | "medium" | "low";
 
 export type IssueSeverity = "required" | "recommended";
@@ -34,12 +36,22 @@ export type PageClassification =
 
 export type ExtractionMode = "embedded_text" | "image_only" | "mixed";
 
+export type PageTextSource = "embedded" | "ocr" | "none";
+
+export type { OcrBoundingBox };
+
 export interface PageAnalysis {
   pageNumber: number;
   rawText: string;
   normalizedText: string;
   charCount: number;
   hasEmbeddedText: boolean;
+  /** True when OCR supplied usable text for this page (embedded text may still be absent). */
+  hasOcrText?: boolean;
+  textSource?: PageTextSource;
+  ocrConfidence?: ConfidenceLevel;
+  /** Retained for evidence resolution; not exposed on API responses. */
+  ocrLines?: { text: string; confidence: ConfidenceLevel; boundingBox?: OcrBoundingBox }[];
   classification: PageClassification;
   classificationConfidence: ConfidenceLevel;
 }
@@ -80,6 +92,8 @@ export interface DocumentPacket {
   pageCount: number;
   extractionMode: ExtractionMode;
   hasEmbeddedText: boolean;
+  /** True when any page received OCR text (production default: false). */
+  hasOcrText?: boolean;
   pages: PageAnalysis[];
   fullText: string;
   checkboxes: DetectedCheckbox[];
@@ -162,6 +176,8 @@ export interface ValidationResultItem {
   page: number | null;
   /** Primary location line for grouping and headers */
   pageLabel: string;
+  /** Populated when OCR/evidence supplies geometry for the finding */
+  boundingBox?: OcrBoundingBox | null;
 }
 
 export interface ValidationResult {
