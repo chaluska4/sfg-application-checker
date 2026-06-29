@@ -5,6 +5,7 @@ import { PageShell } from "@/components/PageShell";
 import { UploadCard } from "@/components/UploadCard";
 import { ResultsDashboard } from "@/components/ResultsDashboard";
 import type { ReviewResult } from "@/lib/validation/types";
+import { isPdfWithinSizeLimit, MAX_PDF_SIZE_ERROR } from "@/lib/upload-security";
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
@@ -14,6 +15,12 @@ export default function Home() {
   const handleReview = async (file: File) => {
     setIsLoading(true);
     setError(null);
+
+    if (!isPdfWithinSizeLimit(file.size)) {
+      setError(MAX_PDF_SIZE_ERROR);
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const formData = new FormData();

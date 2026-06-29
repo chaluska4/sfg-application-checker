@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { extractPdfFields } from "@/lib/pdf/extract-fields";
 import { runValidation } from "@/lib/validation/engine";
+import {
+  isPdfBuffer,
+  isPdfWithinSizeLimit,
+  MAX_PDF_SIZE_ERROR,
+  sanitizeFileName,
+} from "@/lib/upload-security";
+import { COOKIE_NAME, verifySessionToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-/** Vercel serverless body limit is 4.5 MB on Hobby; keep within safe margin */
-const MAX_FILE_SIZE = 4 * 1024 * 1024;
-
 export async function POST(request: NextRequest) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(COOKIE_NAME)?.value;
+  if (!token || !(await verifySessionToken(token))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -21,20 +32,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File must be a PDF." }, { status: 400 });
     }
 
-    if (file.size > MAX_FILE_SIZE) {
+    if (!isPdfWithinSizeLimit(file.size)) {
+      return NextResponse.json({ error: MAX_PDF_SIZE_ERROR }, { status: 400 });
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+
+    if (!isPdfBuffer(arrayBuffer)) {
       return NextResponse.json(
-        { error: "File size must not exceed 4 MB." },
+        { error: "File must be a valid PDF." },
         { status: 400 }
       );
     }
 
-    const arrayBuffer = await file.arrayBuffer();
     const { fields, hasFillableFields } = await extractPdfFields(arrayBuffer);
-    const result = runValidation(fields, hasFillableFields, file.name);
+    const result = runValidation(fields, hasFillableFields, sanitizeFileName(file.name));
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Review error:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Review processing failed:", message);
     return NextResponse.json(
       { error: "Failed to process PDF. Please ensure the file is a valid PDF." },
       { status: 500 }
