@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/auth";
+import {
+  isLocalAuthBypassEnabled,
+  logLocalAuthBypassWarningOnce,
+} from "@/lib/local-auth-bypass";
 
-const PUBLIC_API_ROUTES = new Set(["/api/auth/login", "/api/auth/logout"]);
+const PUBLIC_API_ROUTES = new Set([
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/auth/session",
+]);
 
 function isStaticAsset(pathname: string): boolean {
   return (
@@ -16,6 +24,11 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isStaticAsset(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (isLocalAuthBypassEnabled()) {
+    logLocalAuthBypassWarningOnce();
     return NextResponse.next();
   }
 

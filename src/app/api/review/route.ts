@@ -9,15 +9,23 @@ import {
   sanitizeFileName,
 } from "@/lib/upload-security";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/auth";
+import {
+  isLocalAuthBypassEnabled,
+  logLocalAuthBypassWarningOnce,
+} from "@/lib/local-auth-bypass";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
-  if (!token || !(await verifySessionToken(token))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!isLocalAuthBypassEnabled()) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    if (!token || !(await verifySessionToken(token))) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  } else {
+    logLocalAuthBypassWarningOnce();
   }
 
   try {
