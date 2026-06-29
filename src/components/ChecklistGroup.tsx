@@ -1,5 +1,5 @@
 import type { ValidationResultItem, GroupedChecklist, FieldStatus } from "@/lib/validation/types";
-import { CheckCircle2, XCircle, Eye, HelpCircle, MinusCircle, Info } from "lucide-react";
+import { CheckCircle2, XCircle, Eye, HelpCircle, MinusCircle, Info, MapPin } from "lucide-react";
 
 const statusConfig: Record<
   FieldStatus,
@@ -11,6 +11,42 @@ const statusConfig: Record<
   conditional_review: { icon: HelpCircle, iconClass: "text-warning", rowClass: "bg-warning-light/40 border-warning/15", badgeClass: "bg-warning-light text-warning", badge: "Conditional Review" },
   not_applicable: { icon: MinusCircle, iconClass: "text-gray-400", rowClass: "bg-gray-50 border-gray-200", badgeClass: "bg-gray-100 text-gray-500", badge: "Not Applicable" },
 };
+
+function LocationGuidance({ item }: { item: ValidationResultItem }) {
+  if (item.locationConfidence === "actual" && item.actualPageLabel) {
+    return (
+      <p className="mt-1 text-xs text-gray-600">
+        <span className="font-medium text-navy">Actual Page:</span> {item.actualPageLabel}
+      </p>
+    );
+  }
+
+  if (item.locationConfidence === "template" && item.expectedDocument) {
+    return (
+      <div className="mt-1 space-y-0.5 text-xs text-gray-600">
+        <p>
+          <span className="font-medium text-navy">Expected Location:</span> {item.expectedDocument}
+          {item.expectedPageLabel ? `, ${item.expectedPageLabel}` : ""}
+        </p>
+        {item.typicalLocation && (
+          <p>
+            <span className="font-medium text-navy">Section:</span> {item.typicalLocation}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (item.locationConfidence === "packet") {
+    return (
+      <p className="mt-1 text-xs text-gray-600">
+        <span className="font-medium text-navy">Packet-level review</span>
+      </p>
+    );
+  }
+
+  return null;
+}
 
 function ChecklistRow({ item }: { item: ValidationResultItem }) {
   const config = statusConfig[item.status];
@@ -32,6 +68,12 @@ function ChecklistRow({ item }: { item: ValidationResultItem }) {
             {config.badge}
           </span>
         </div>
+        <LocationGuidance item={item} />
+        {item.manualReviewHint &&
+          (item.status === "needs_manual_verification" ||
+            item.status === "conditional_review") && (
+            <p className="mt-1.5 text-xs italic text-gray-500">{item.manualReviewHint}</p>
+          )}
         {item.message && <p className="mt-1 text-xs text-gray-600">{item.message}</p>}
       </div>
     </div>
@@ -74,10 +116,28 @@ export function ChecklistGroup({
       {filteredGroups.map((group) => (
         <div key={`${group.pageLabel}-${group.section}`} className="overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-gray-100">
           <div className="border-b border-gray-100 bg-navy/[0.03] px-5 py-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-label">
-              {group.pageLabel}
-            </p>
-            <h4 className="font-serif text-base font-semibold text-navy">{group.section}</h4>
+            <div className="flex items-start gap-2">
+              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-label">
+                  {group.locationConfidence === "actual"
+                    ? `Actual Page: ${group.pageLabel.replace("Actual Page: ", "")}`
+                    : group.locationConfidence === "template"
+                      ? "Expected Location"
+                      : group.pageLabel}
+                </p>
+                {group.locationConfidence === "template" && group.expectedDocument && (
+                  <p className="mt-1 text-sm font-medium text-navy">
+                    {group.expectedDocument}
+                    {group.expectedPageLabel ? ` · ${group.expectedPageLabel}` : ""}
+                  </p>
+                )}
+                {group.typicalLocation && group.locationConfidence === "template" && (
+                  <p className="mt-0.5 text-xs text-gray-500">{group.typicalLocation}</p>
+                )}
+                <h4 className="mt-1 font-serif text-base font-semibold text-navy">{group.section}</h4>
+              </div>
+            </div>
           </div>
           <div className="space-y-2 p-4">
             {group.items.map((item) => (

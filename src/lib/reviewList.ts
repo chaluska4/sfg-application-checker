@@ -27,6 +27,10 @@ export function buildMasterReviewGroups(items: ValidationResultItem[]): GroupedC
         pageLabel: item.pageLabel,
         section: item.section,
         documentType: item.documentType,
+        locationConfidence: item.locationConfidence,
+        expectedDocument: item.expectedDocument,
+        typicalLocation: item.typicalLocation,
+        expectedPageLabel: item.expectedPageLabel,
         items: [],
       });
     }
@@ -34,7 +38,22 @@ export function buildMasterReviewGroups(items: ValidationResultItem[]): GroupedC
   }
 
   return [...map.values()]
-    .sort(comparePageGroups)
+    .sort((a, b) =>
+      comparePageGroups(
+        {
+          page: a.page,
+          section: a.section,
+          typicalPageRange: a.items[0]?.typicalPageRange,
+          locationConfidence: a.locationConfidence,
+        },
+        {
+          page: b.page,
+          section: b.section,
+          typicalPageRange: b.items[0]?.typicalPageRange,
+          locationConfidence: b.locationConfidence,
+        }
+      )
+    )
     .map((group) => ({
       ...group,
       items: [...group.items].sort(
@@ -53,10 +72,29 @@ export function groupAllItems(items: ValidationResultItem[]): GroupedChecklist[]
         pageLabel: item.pageLabel,
         section: item.section,
         documentType: item.documentType,
+        locationConfidence: item.locationConfidence,
+        expectedDocument: item.expectedDocument,
+        typicalLocation: item.typicalLocation,
+        expectedPageLabel: item.expectedPageLabel,
         items: [],
       });
     }
     map.get(key)!.items.push(item);
   }
-  return [...map.values()].sort(comparePageGroups);
+  return [...map.values()].sort((a, b) =>
+    comparePageGroups(
+      {
+        page: a.page,
+        section: a.section,
+        typicalPageRange: a.items[0]?.typicalPageRange,
+        locationConfidence: a.locationConfidence,
+      },
+      {
+        page: b.page,
+        section: b.section,
+        typicalPageRange: b.items[0]?.typicalPageRange,
+        locationConfidence: b.locationConfidence,
+      }
+    )
+  );
 }

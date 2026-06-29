@@ -20,8 +20,7 @@ import { minConfidence, pageTextConfidence } from "./confidence";
 import { FORM_NAME, equitrustMarketEarlyNjRules } from "./templates/equitrust-marketearly-nj";
 import {
   comparePageGroups,
-  PACKET_LEVEL_LABEL,
-  resolveFindingPage,
+  resolveFindingLocation,
   type PageEvidence,
 } from "./resolve-finding-page";
 
@@ -149,10 +148,10 @@ function evaluateRule(
   const evidence = buildPageEvidence(rule, packet);
 
   if (lowConfidencePacket) {
-    const resolved = resolveFindingPage(rule, packet, evidence);
+    const resolved = resolveFindingLocation(rule, packet, evidence);
     const pageNote =
       packet.pageCount > 1
-        ? ` ${packet.pageCount}-page scanned packet — verify on ${resolved.pageLabel}.`
+        ? ` ${packet.pageCount}-page scanned packet — verify using ${resolved.pageLabel}.`
         : "";
     return makeItem(
       rule,
@@ -294,30 +293,32 @@ function makeItem(
   message?: string,
   evidence: PageEvidence = {}
 ): ValidationResultItem {
-  const resolved = resolveFindingPage(rule, packet, evidence);
+  const location = resolveFindingLocation(rule, packet, evidence);
   const pageMeta =
-    resolved.page !== null
-      ? packet.pages.find((p) => p.pageNumber === resolved.page)
+    location.actualPage !== null
+      ? packet.pages.find((p) => p.pageNumber === location.actualPage)
       : undefined;
-
-  const page =
-    resolved.page !== null && pageMeta && !pageMeta.hasEmbeddedText
-      ? null
-      : resolved.page;
-  const pageLabel = page === null ? PACKET_LEVEL_LABEL : resolved.pageLabel;
 
   return {
     ruleId: rule.id,
     label: rule.label,
-    page,
-    pageLabel,
     section: rule.section,
-    documentType: resolved.documentType,
+    documentType: location.documentType,
     status,
     severity: rule.severity,
     message,
     confidence: minConfidence(confidence, pageMeta?.classificationConfidence ?? "medium"),
     isConditional,
+    actualPage: location.actualPage,
+    actualPageLabel: location.actualPageLabel,
+    expectedDocument: location.expectedDocument,
+    typicalLocation: location.typicalLocation,
+    typicalPageRange: location.typicalPageRange,
+    locationConfidence: location.locationConfidence,
+    manualReviewHint: location.manualReviewHint,
+    expectedPageLabel: location.expectedPageLabel,
+    page: location.actualPage,
+    pageLabel: location.pageLabel,
   };
 }
 
@@ -363,6 +364,10 @@ function groupItems(items: ValidationResultItem[]): GroupedChecklist[] {
         pageLabel: item.pageLabel,
         section: item.section,
         documentType: item.documentType,
+        locationConfidence: item.locationConfidence,
+        expectedDocument: item.expectedDocument,
+        typicalLocation: item.typicalLocation,
+        expectedPageLabel: item.expectedPageLabel,
         items: [],
       });
     }
@@ -376,7 +381,22 @@ function groupItems(items: ValidationResultItem[]): GroupedChecklist[] {
     not_applicable: 4,
   };
   return [...map.values()]
-    .sort(comparePageGroups)
+    .sort((a, b) =>
+      comparePageGroups(
+        {
+          page: a.page,
+          section: a.section,
+          typicalPageRange: a.items[0]?.typicalPageRange,
+          locationConfidence: a.locationConfidence,
+        },
+        {
+          page: b.page,
+          section: b.section,
+          typicalPageRange: b.items[0]?.typicalPageRange,
+          locationConfidence: b.locationConfidence,
+        }
+      )
+    )
     .map((g) => ({
       ...g,
       items: [...g.items].sort((a, b) => order[a.status] - order[b.status]),

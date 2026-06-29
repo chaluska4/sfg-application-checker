@@ -123,14 +123,25 @@ export interface ValidationRule {
   checkboxLabel?: string;
   flagKey?: keyof DocumentPacket["flags"];
   condition?: RuleCondition;
+  /** Key into template reviewItemLocations for manual-review guidance */
+  locationKey?: string;
+}
+
+export type TemplatePageConfidence = "fixed" | "approximate" | "unknown";
+export type LocationConfidence = "actual" | "template" | "packet";
+
+export interface ReviewItemLocation {
+  label: string;
+  expectedDocument: string;
+  typicalLocation: string;
+  typicalPageRange: string;
+  pageConfidence: TemplatePageConfidence;
+  manualReviewHint: string;
 }
 
 export interface ValidationResultItem {
   ruleId: string;
   label: string;
-  /** PDF page number when known; null for packet-level findings */
-  page: number | null;
-  pageLabel: string;
   section: string;
   documentType: PageClassification;
   status: FieldStatus;
@@ -138,6 +149,19 @@ export interface ValidationResultItem {
   message?: string;
   confidence: ConfidenceLevel;
   isConditional: boolean;
+  actualPage: number | null;
+  actualPageLabel: string | null;
+  expectedDocument: string | null;
+  typicalLocation: string | null;
+  typicalPageRange: string | null;
+  locationConfidence: LocationConfidence;
+  manualReviewHint: string | null;
+  /** Display label for expected page guidance (Expected Page X / Typical Page Range X-Y) */
+  expectedPageLabel: string | null;
+  /** @deprecated Use actualPage — kept for grouping sort */
+  page: number | null;
+  /** Primary location line for grouping and headers */
+  pageLabel: string;
 }
 
 export interface ValidationResult {
@@ -166,6 +190,10 @@ export interface GroupedChecklist {
   pageLabel: string;
   section: string;
   documentType: PageClassification;
+  locationConfidence: LocationConfidence;
+  expectedDocument: string | null;
+  typicalLocation: string | null;
+  expectedPageLabel: string | null;
   items: ValidationResultItem[];
 }
 
