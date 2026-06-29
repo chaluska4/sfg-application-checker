@@ -6,17 +6,23 @@ import { ProgressBar } from "./ProgressBar";
 import { SummaryCards } from "./SummaryCards";
 import { ChecklistGroup } from "./ChecklistGroup";
 import { buildMasterReviewGroups, groupAllItems } from "@/lib/reviewList";
-import { ArrowLeft, FileText, AlertCircle } from "lucide-react";
+import { ArrowLeft, FileText, AlertCircle, Info } from "lucide-react";
 
 interface ResultsDashboardProps {
   result: ReviewResult;
   onReset: () => void;
 }
 
+const EXTRACTION_LABELS = {
+  embedded_text: "Embedded text extracted from PDF",
+  image_only: "Image-only / scanned pages — manual verification required",
+  mixed: "Mixed embedded text and image-only pages",
+};
+
 export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
   const issueGroups = buildMasterReviewGroups(result.items);
-  const passedGroups = groupAllItems(
-    result.items.filter((item) => item.status === "completed")
+  const presentGroups = groupAllItems(
+    result.items.filter((item) => item.status === "present")
   );
 
   return (
@@ -32,25 +38,25 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
         </button>
         <div className="flex items-center gap-2 text-sm text-gray-500">
           <FileText className="h-4 w-4" />
-          <span className="max-w-xs truncate font-medium text-navy sm:max-w-md">
-            {result.fileName}
-          </span>
+          <span className="max-w-xs truncate font-medium text-navy sm:max-w-md">{result.fileName}</span>
+          <span className="text-xs text-gray-400">({result.pageCount} pages)</span>
         </div>
       </div>
 
-      {!result.hasFillableFields && (
+      {result.extractionMode !== "embedded_text" && (
         <div className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-navy" />
           <div>
-            <p className="font-serif font-semibold text-navy">Manual Review Needed</p>
-            <p className="mt-1 text-sm text-gray-600">
-              This PDF does not expose fillable AcroForm fields. Automated field validation
-              cannot be performed. The checklist below shows all expected requirements for
-              manual verification.
-            </p>
+            <p className="font-serif font-semibold text-navy">Document Intelligence Notice</p>
+            <p className="mt-1 text-sm text-gray-600">{EXTRACTION_LABELS[result.extractionMode]}</p>
           </div>
         </div>
       )}
+
+      <div className="flex items-start gap-3 rounded-2xl border border-gold/30 bg-gold/5 p-4">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-gold-muted" />
+        <p className="text-sm text-gray-700">{result.disclaimer}</p>
+      </div>
 
       <div className="rounded-3xl bg-white p-6 shadow-xl sm:p-8">
         <p className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-slate-label">
@@ -62,16 +68,15 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
           </h2>
           <StatusBadge status={result.status} label={result.statusLabel} />
         </div>
-
         <div className="mt-8">
           <ProgressBar score={result.completionScore} />
         </div>
-
         <div className="mt-8">
           <SummaryCards
-            completed={result.summary.completed}
-            warnings={result.summary.warnings}
+            present={result.summary.present}
             missing={result.summary.missing}
+            needsManualVerification={result.summary.needsManualVerification}
+            conditionalReview={result.summary.conditionalReview}
           />
         </div>
       </div>
@@ -79,11 +84,11 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
       <ChecklistGroup
         groups={issueGroups}
         title="Issues to Review — Application Packet"
-        showCompleted={false}
+        showPresent={false}
       />
 
-      {passedGroups.length > 0 && issueGroups.length > 0 && (
-        <ChecklistGroup groups={passedGroups} title="Passed Items" showCompleted />
+      {presentGroups.length > 0 && issueGroups.length > 0 && (
+        <ChecklistGroup groups={presentGroups} title="Confirmed Present" showPresent />
       )}
     </div>
   );

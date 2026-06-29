@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { extractPdfFields } from "@/lib/pdf/extract-fields";
-import { runValidation } from "@/lib/validation/engine";
+import { runDocumentIntelligence } from "@/lib/document-intelligence";
 import {
   isPdfBuffer,
   isPdfWithinSizeLimit,
@@ -45,8 +44,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { fields, hasFillableFields } = await extractPdfFields(arrayBuffer);
-    const result = runValidation(fields, hasFillableFields, sanitizeFileName(file.name));
+    const result = await runDocumentIntelligence(arrayBuffer, sanitizeFileName(file.name));
 
     return NextResponse.json(result);
   } catch (error) {

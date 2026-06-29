@@ -1,0 +1,56 @@
+import { extractText, getDocumentProxy } from "unpdf";
+import type { PageAnalysis } from "./types";
+import { pageTextConfidence } from "./confidence";
+import { classifyPage } from "./classify-pages";
+
+const MIN_TEXT_CHARS = 20;
+
+export async function extractPdfPages(pdfBuffer: ArrayBuffer): Promise<{
+  pages: PageAnalysis[];
+  pageCount: number;
+  fullText: string;
+  hasEmbeddedText: boolean;
+}> {
+  const pdf = await getDocumentProxy(new Uint8Array(pdfBuffer));
+  const { totalPages, text } = await extractText(pdf, { mergePages: false });
+  const pageTexts = Array.isArray(text) ? text : [text];
+
+  const pages: PageAnalysis[] = [];
+  let anyText = false;
+
+  for (let i = 0; i < totalPages; i++) {
+    const rawText = (pageTexts[i] ?? "").trim();
+    const hasEmbeddedText = rawText.length >= MIN_TEXT_CHARS;
+    if (hasEmbeddedText) anyText = true;
+
+    const normalizedText = normalizeText(rawText);
+    const { classification, confidence } = classifyPage(normalizedText, i + 1);
+
+    pages.push({
+      pageNumber: i + 1,
+      rawText,
+      normalizedText,
+      charCount: rawText.length,
+      hasEmbeddedText,
+      classification,
+      classificationConfidence: hasEmbeddedText
+        ? confidence
+        : pageTextConfidence(rawText.length, false),
+    });
+  }
+
+  return {
+    pages,
+    pageCount: totalPages,
+    fullText: pages.map((p) => p.rawText).join("\n\n"),
+    hasEmbeddedText: anyText,
+  };
+}
+
+export function normalizeText(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/[""]/g, '"')
+    .trim()
+    .toLowerCase();
+}

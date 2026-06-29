@@ -1,41 +1,27 @@
-import { CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle, Eye, HelpCircle } from "lucide-react";
 
 interface SummaryCardsProps {
-  completed: number;
-  warnings: number;
+  present: number;
   missing: number;
+  needsManualVerification: number;
+  conditionalReview: number;
 }
 
-export function SummaryCards({ completed, warnings, missing }: SummaryCardsProps) {
+export function SummaryCards({
+  present,
+  missing,
+  needsManualVerification,
+  conditionalReview,
+}: SummaryCardsProps) {
   const cards = [
-    {
-      label: "Passed",
-      count: completed,
-      icon: CheckCircle2,
-      bg: "bg-success-light",
-      iconColor: "text-success",
-      border: "border-success/20",
-    },
-    {
-      label: "Warnings",
-      count: warnings,
-      icon: AlertTriangle,
-      bg: "bg-warning-light",
-      iconColor: "text-warning",
-      border: "border-warning/20",
-    },
-    {
-      label: "Missing",
-      count: missing,
-      icon: XCircle,
-      bg: "bg-red-light",
-      iconColor: "text-red-accent",
-      border: "border-red-accent/20",
-    },
+    { label: "Confirmed Present", count: present, icon: CheckCircle2, bg: "bg-success-light", iconColor: "text-success", border: "border-success/20" },
+    { label: "Missing", count: missing, icon: XCircle, bg: "bg-red-light", iconColor: "text-red-accent", border: "border-red-accent/20" },
+    { label: "Needs Manual Verification", count: needsManualVerification, icon: Eye, bg: "bg-navy/5", iconColor: "text-navy", border: "border-navy/15" },
+    { label: "Conditional Review", count: conditionalReview, icon: HelpCircle, bg: "bg-warning-light", iconColor: "text-warning", border: "border-warning/20" },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {cards.map((card) => (
         <div
           key={card.label}
