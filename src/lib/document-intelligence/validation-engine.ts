@@ -26,6 +26,7 @@ import {
 } from "./resolve-finding-page";
 import type { OcrProvider } from "./ocr";
 import { deriveExtractionMode, pageHasUsableText } from "./ocr";
+import { appendPacketFormsReview, isRuleConditionUndetermined } from "./packet-forms-review";
 
 const DISCLAIMER =
   "Automated review supports manual due diligence. Final submission readiness must be confirmed by an authorized SFG reviewer.";
@@ -115,6 +116,19 @@ function validatePacket(
     const conditionActive = isConditionActive(rule, packet);
 
     if (isConditional && !conditionActive) {
+      if (isRuleConditionUndetermined(rule, packet, lowConfidencePacket)) {
+        items.push(
+          makeItem(
+            rule,
+            packet,
+            "conditional_review",
+            "low",
+            true,
+            "Application trigger could not be read from scanned pages — verify whether this form is required."
+          )
+        );
+        continue;
+      }
       items.push(makeItem(rule, packet, "not_applicable", "low", false, "Not required based on current answers."));
       continue;
     }
@@ -132,7 +146,7 @@ function validatePacket(
     items.push(evaluateRule(rule, packet, lowConfidencePacket));
   }
 
-  return items;
+  return appendPacketFormsReview(items, packet);
 }
 
 function isConditionActive(rule: ValidationRule, packet: DocumentPacket): boolean {

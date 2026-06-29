@@ -6,6 +6,7 @@ import { ProgressBar } from "./ProgressBar";
 import { SummaryCards } from "./SummaryCards";
 import { ChecklistGroup } from "./ChecklistGroup";
 import { buildMasterReviewGroups, groupAllItems } from "@/lib/reviewList";
+import { PACKET_FORMS_SECTION } from "@/lib/document-intelligence/packet-forms-review";
 import {
   buildDocumentIntelligenceNotice,
   shouldShowStandaloneDisclaimer,
@@ -19,6 +20,8 @@ interface ResultsDashboardProps {
 
 export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
   const issueGroups = buildMasterReviewGroups(result.items);
+  const packetFormsGroups = issueGroups.filter((g) => g.section === PACKET_FORMS_SECTION);
+  const coreIssueGroups = issueGroups.filter((g) => g.section !== PACKET_FORMS_SECTION);
   const presentGroups = groupAllItems(
     result.items.filter((item) => item.status === "present")
   );
@@ -84,10 +87,18 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
       </div>
 
       <ChecklistGroup
-        groups={issueGroups}
+        groups={coreIssueGroups}
         title="Issues to Review — Application Packet"
         showPresent={false}
       />
+
+      {packetFormsGroups.length > 0 && (
+        <ChecklistGroup
+          groups={packetFormsGroups}
+          title="Packet Forms Review"
+          showPresent={false}
+        />
+      )}
 
       {presentGroups.length > 0 && issueGroups.length > 0 && (
         <ChecklistGroup groups={presentGroups} title="Confirmed Present" showPresent />

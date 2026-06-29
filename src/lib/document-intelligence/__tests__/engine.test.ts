@@ -194,7 +194,7 @@ describe("page number mapping", () => {
     }));
 
     const items = validatePacketLogic(transferCaseText, pages);
-    const transfer = items.find((i) => i.ruleId === "transfer-form");
+    const transfer = items.find((i) => i.ruleId === "packet-form-transfer");
     expect(transfer?.status).not.toBe("not_applicable");
     expect(transfer?.expectedPageLabel).toBe("Typical Page Range 15-18");
     expect(transfer?.expectedPageLabel).toContain("Typical");

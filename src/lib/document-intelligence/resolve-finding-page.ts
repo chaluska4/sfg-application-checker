@@ -8,6 +8,7 @@ import type {
   ValidationRule,
 } from "./types";
 import { getLocationForRule } from "./templates/equitrust-template-metadata";
+import { equitrustMarketEarlyNJ } from "./templates/equitrust-template-metadata";
 import { findOcrBoundingBoxForPatterns, pageHasUsableText } from "./ocr";
 
 export const PACKET_LEVEL_LABEL = "Packet-level review";
@@ -97,12 +98,24 @@ export function resolveEvidenceBoundingBox(
   return findOcrBoundingBoxForPatterns(page.ocrLines, rule.labelPatterns);
 }
 
+function getTemplateLocationForRule(rule: ValidationRule): ReviewItemLocation | null {
+  if (
+    rule.locationKey &&
+    rule.locationKey in equitrustMarketEarlyNJ.reviewItemLocations
+  ) {
+    return equitrustMarketEarlyNJ.reviewItemLocations[
+      rule.locationKey as keyof typeof equitrustMarketEarlyNJ.reviewItemLocations
+    ];
+  }
+  return getLocationForRule(rule.id);
+}
+
 export function resolveFindingLocation(
   rule: ValidationRule,
   packet: DocumentPacket,
   evidence: PageEvidence = {}
 ): FindingLocation {
-  const templateLocation = getLocationForRule(rule.id);
+  const templateLocation = getTemplateLocationForRule(rule);
   const documentType =
     rule.pageTypes?.[0] ??
     (templateLocation ? inferDocumentType(templateLocation) : "unknown");
