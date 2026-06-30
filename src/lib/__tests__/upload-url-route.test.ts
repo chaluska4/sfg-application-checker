@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const createBlobUploadSasUrlMock = vi.fn(() => "https://account.blob.core.windows.net/container/reviews/file.pdf?sig=test");
+const SAMPLE_BLOB_NAME =
+  "review-uploads/2026-06-30/7f3a9c2e-palmaffy-robert-eqt-eq0001545688f-johnson.pdf";
+
+const createBlobUploadSasUrlMock = vi.fn(
+  () =>
+    "https://account.blob.core.windows.net/container/review-uploads/2026-06-30/file.pdf?sig=test"
+);
 
 vi.mock("@/lib/azure-blob-storage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/azure-blob-storage")>();
@@ -8,7 +14,7 @@ vi.mock("@/lib/azure-blob-storage", async (importOriginal) => {
     ...actual,
     isAzureBlobStorageConfigured: vi.fn(() => true),
     createBlobUploadSasUrl: (...args: unknown[]) => createBlobUploadSasUrlMock(...args),
-    sanitizeBlobName: vi.fn(() => "reviews/11111111-1111-4111-8111-111111111111-scan.pdf"),
+    generateBlobName: vi.fn(() => SAMPLE_BLOB_NAME),
   };
 });
 
@@ -31,7 +37,7 @@ describe("POST /api/upload-url", () => {
     });
   });
 
-  it("returns uploadUrl and blobName for valid large PDF metadata", async () => {
+  it("returns uploadUrl and blobName for valid large PDF metadata with spaced filenames", async () => {
     const { POST } = await import("@/app/api/upload-url/route");
 
     const response = await POST(
@@ -39,7 +45,7 @@ describe("POST /api/upload-url", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          filename: "scan.pdf",
+          filename: "Palmaffy Robert EQT EQ0001545688F Johnson.pdf",
           contentType: "application/pdf",
           size: 9_500_000,
         }),
@@ -48,10 +54,14 @@ describe("POST /api/upload-url", () => {
 
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.blobName).toBe("reviews/11111111-1111-4111-8111-111111111111-scan.pdf");
+    expect(body.blobName).toBe(SAMPLE_BLOB_NAME);
     expect(body.uploadUrl).toContain("blob.core.windows.net");
     expect(body.uploadUrl).toContain("sig=");
-    expect(createBlobUploadSasUrlMock).toHaveBeenCalledTimes(1);
+    expect(createBlobUploadSasUrlMock).toHaveBeenCalledWith(
+      SAMPLE_BLOB_NAME,
+      "application/pdf",
+      expect.any(String)
+    );
   });
 
   it("rejects non-PDF content types", async () => {

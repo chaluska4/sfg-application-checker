@@ -22,7 +22,7 @@ vi.mock("@azure/storage-blob", () => ({
           download: downloadMock,
           getProperties: getPropertiesMock,
           deleteIfExists: deleteIfExistsMock,
-          url: "https://account.blob.core.windows.net/review-uploads/reviews/file.pdf",
+          url: "https://account.blob.core.windows.net/review-uploads/review-uploads/2026-06-30/file.pdf",
         })),
       })),
     })),
@@ -64,13 +64,13 @@ describe("azure blob storage SDK wiring", () => {
 
   it("creates SAS upload URLs, downloads blobs, and deletes them", async () => {
     const {
-      sanitizeBlobName,
+      generateBlobName,
       createBlobUploadSasUrl,
       downloadBlobToBuffer,
       deleteBlobIfExists,
     } = await import("@/lib/azure-blob-storage");
 
-    const blobName = sanitizeBlobName("scan.pdf");
+    const blobName = generateBlobName("scan.pdf", new Date("2026-06-30T12:00:00.000Z"));
     const uploadUrl = createBlobUploadSasUrl(blobName, "application/pdf", "req-upload");
     const downloaded = await downloadBlobToBuffer(blobName, "req-download");
     await deleteBlobIfExists(blobName, "req-delete");

@@ -29,8 +29,8 @@ describe("submitReviewPdf Azure SAS upload routing", () => {
   });
 
   it("requests SAS URL metadata then uploads directly to Azure before review", async () => {
-    const blobName = "reviews/11111111-1111-4111-8111-111111111111-large.pdf";
-    const uploadUrl = "https://account.blob.core.windows.net/container/reviews/file.pdf?sig=test";
+    const blobName = "review-uploads/2026-06-30/7f3a9c2e-palmaffy-robert-eqt-eq0001545688f-johnson.pdf";
+    const uploadUrl = "https://account.blob.core.windows.net/container/review-uploads/2026-06-30/file.pdf?sig=test";
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -92,7 +92,7 @@ describe("submitReviewPdf Azure SAS upload routing", () => {
   });
 
   it("surfaces Azure direct upload failures", async () => {
-    const uploadUrl = "https://account.blob.core.windows.net/container/reviews/file.pdf?sig=test";
+    const uploadUrl = "https://account.blob.core.windows.net/container/review-uploads/2026-06-30/file.pdf?sig=test";
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -108,7 +108,7 @@ describe("submitReviewPdf Azure SAS upload routing", () => {
         return new Response(
           JSON.stringify({
             uploadUrl,
-            blobName: "reviews/11111111-1111-4111-8111-111111111111-large.pdf",
+            blobName: "review-uploads/2026-06-30/7f3a9c2e-palmaffy-robert-eqt-eq0001545688f-johnson.pdf",
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         );

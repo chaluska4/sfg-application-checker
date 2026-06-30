@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import {
   AZURE_BLOB_STORAGE_SETUP_ERROR,
   createBlobUploadSasUrl,
+  generateBlobName,
   isAzureBlobStorageConfigured,
-  sanitizeBlobName,
 } from "@/lib/azure-blob-storage";
 import { requireAuthenticatedReviewAccess } from "@/lib/review-auth";
 import { createReviewErrorResponse } from "@/lib/review-route-errors";
@@ -54,7 +54,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    const blobName = sanitizeBlobName(uploadRequest.filename);
+    const blobName = generateBlobName(uploadRequest.filename);
     const uploadUrl = createBlobUploadSasUrl(blobName, uploadRequest.contentType, requestId);
 
     const response: UploadUrlResponse = {

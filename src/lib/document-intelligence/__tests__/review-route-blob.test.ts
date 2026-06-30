@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sanitizeBlobName } from "@/lib/azure-blob-storage";
+import { generateBlobName } from "@/lib/azure-blob-storage";
 
 const processReviewPdfMock = vi.fn(async () => ({
   formName: "Test",
@@ -58,7 +58,7 @@ describe("POST /api/review Azure blob references", () => {
 
   it("reviews a PDF from blobName JSON and deletes the blob afterward", async () => {
     const { POST } = await import("../../../app/api/review/route");
-    const blobName = sanitizeBlobName("scan.pdf");
+    const blobName = generateBlobName("scan.pdf", new Date("2026-06-30T12:00:00.000Z"));
 
     const request = new Request("http://localhost/api/review", {
       method: "POST",
@@ -81,7 +81,7 @@ describe("POST /api/review Azure blob references", () => {
     processReviewPdfMock.mockRejectedValueOnce(new Error("Review timed out before completion"));
 
     const { POST } = await import("../../../app/api/review/route");
-    const blobName = sanitizeBlobName("scan.pdf");
+    const blobName = generateBlobName("scan.pdf", new Date("2026-06-30T12:00:00.000Z"));
 
     const request = new Request("http://localhost/api/review", {
       method: "POST",
