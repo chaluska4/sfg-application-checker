@@ -138,7 +138,7 @@ describe("page number mapping", () => {
     expect(owner?.page).toBe(2);
     expect(owner?.locationConfidence).toBe("actual");
     expect(owner?.actualPageLabel).toBe("Page 2");
-    expect(owner?.pageLabel).toContain("Actual Page");
+    expect(owner?.pageLabel).toContain("Found on Page");
     expect(beneficiary?.page).toBe(3);
     expect(items.filter((i) => i.page === 1 && i.status !== "not_applicable").length).toBe(0);
     expect(replacement?.locationConfidence === "actual" ? replacement.page : replacement?.expectedPageLabel).toBeTruthy();
@@ -156,12 +156,12 @@ describe("page number mapping", () => {
     }));
 
     const items = validatePacketLogic("", pages);
-    const manual = items.filter((i) => i.status === "needs_manual_verification");
-    expect(manual.length).toBeGreaterThan(0);
-    expect(manual.every((i) => i.locationConfidence === "template")).toBe(true);
-    expect(manual.every((i) => i.expectedDocument)).toBe(true);
-    expect(manual.some((i) => i.pageLabel.includes("Expected Location"))).toBe(true);
-    expect(manual.every((i) => i.pageLabel !== "Packet-level review")).toBe(true);
+    const unreadable = items.filter((i) => i.status === "ocr_unreadable" || i.status === "low_confidence");
+    expect(unreadable.length).toBeGreaterThan(0);
+    expect(unreadable.every((i) => i.locationConfidence === "template")).toBe(true);
+    expect(unreadable.every((i) => i.expectedDocument)).toBe(true);
+    expect(unreadable.some((i) => i.pageLabel.includes("Unable to determine"))).toBe(true);
+    expect(unreadable.every((i) => i.pageLabel !== "Packet-level review")).toBe(true);
   });
 
   it("does not display template page ranges as actual pages for scanned packets", () => {
@@ -209,12 +209,12 @@ describe("page number mapping", () => {
     expect(allocationPage?.page).toBeNull();
     expect(allocationPage?.locationConfidence).toBe("template");
     expect(allocationPage?.expectedPageLabel).toBe("Expected Page 9");
-    expect(allocationPage?.pageLabel).toContain("Expected Location");
+    expect(allocationPage?.pageLabel).toBe("Not Found");
   });
 });
 
 describe("scanned PDF behavior", () => {
-  it("marks items needs manual verification not missing for image-only", () => {
+  it("marks items ocr_unreadable not missing for image-only without text", () => {
     const pages: PageAnalysis[] = [
       {
         pageNumber: 1,
@@ -229,7 +229,7 @@ describe("scanned PDF behavior", () => {
     const items = validatePacketLogic("", pages);
     const missingOnlyBecauseNoFields = items.filter((i) => i.status === "missing");
     expect(missingOnlyBecauseNoFields.length).toBe(0);
-    expect(items.some((i) => i.status === "needs_manual_verification")).toBe(true);
+    expect(items.some((i) => i.status === "ocr_unreadable")).toBe(true);
   });
 });
 

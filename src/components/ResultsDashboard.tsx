@@ -80,7 +80,12 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
           <SummaryCards
             present={result.summary.present}
             missing={result.summary.missing}
-            needsManualVerification={result.summary.needsManualVerification}
+            needsManualVerification={
+              result.summary.needsManualVerification +
+              result.summary.lowConfidence +
+              result.summary.ocrUnreadable +
+              result.summary.incomplete
+            }
             conditionalReview={result.summary.conditionalReview}
           />
         </div>

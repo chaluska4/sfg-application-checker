@@ -1,5 +1,6 @@
 import type {
   DocumentPacket,
+  FindingDisposition,
   LocationConfidence,
   OcrBoundingBox,
   PageAnalysis,
@@ -7,6 +8,7 @@ import type {
   ReviewItemLocation,
   ValidationRule,
 } from "./types";
+import { getPageClassificationLabel } from "./page-classification-labels";
 import { getLocationForRule } from "./templates/equitrust-template-metadata";
 import { equitrustMarketEarlyNJ } from "./templates/equitrust-template-metadata";
 import { findOcrBoundingBoxForPatterns, pageHasUsableText } from "./ocr";
@@ -43,6 +45,7 @@ export interface FindingLocation {
   page: number | null;
   pageLabel: string;
   documentType: PageClassification;
+  detectedFormName?: string | null;
 }
 
 export function formatExpectedPageLabel(location: ReviewItemLocation): string {
@@ -113,7 +116,8 @@ function getTemplateLocationForRule(rule: ValidationRule): ReviewItemLocation | 
 export function resolveFindingLocation(
   rule: ValidationRule,
   packet: DocumentPacket,
-  evidence: PageEvidence = {}
+  evidence: PageEvidence = {},
+  disposition?: FindingDisposition
 ): FindingLocation {
   const templateLocation = getTemplateLocationForRule(rule);
   const documentType =
@@ -122,7 +126,11 @@ export function resolveFindingLocation(
 
   const candidatePage = resolveActualPageNumber(rule, packet, evidence);
   if (candidatePage !== null && isActualPageConfident(packet, candidatePage)) {
+    const pageMeta = packet.pages.find((p) => p.pageNumber === candidatePage);
     const actualPageLabel = `Page ${candidatePage}`;
+    const detectedFormName = pageMeta
+      ? getPageClassificationLabel(pageMeta.classification)
+      : null;
     return {
       actualPage: candidatePage,
       actualPageLabel,
@@ -133,12 +141,13 @@ export function resolveFindingLocation(
       manualReviewHint: templateLocation?.manualReviewHint ?? null,
       expectedPageLabel: null,
       page: candidatePage,
-      pageLabel: `Actual Page: ${actualPageLabel}`,
+      pageLabel: `Found on Page ${candidatePage}`,
       documentType,
+      detectedFormName,
     };
   }
 
-  if (templateLocation) {
+  if (disposition === "not_found" && templateLocation) {
     const expectedPageLabel = formatExpectedPageLabel(templateLocation);
     return {
       actualPage: null,
@@ -150,7 +159,27 @@ export function resolveFindingLocation(
       manualReviewHint: templateLocation.manualReviewHint,
       expectedPageLabel,
       page: null,
-      pageLabel: `Expected Location: ${templateLocation.expectedDocument}, ${expectedPageLabel}`,
+      pageLabel: "Not Found",
+      documentType,
+    };
+  }
+
+  if (templateLocation) {
+    const expectedPageLabel = formatExpectedPageLabel(templateLocation);
+    const unable = disposition === "unable_to_determine";
+    return {
+      actualPage: null,
+      actualPageLabel: null,
+      expectedDocument: templateLocation.expectedDocument,
+      typicalLocation: templateLocation.typicalLocation,
+      typicalPageRange: templateLocation.typicalPageRange,
+      locationConfidence: "template",
+      manualReviewHint: templateLocation.manualReviewHint,
+      expectedPageLabel,
+      page: null,
+      pageLabel: unable
+        ? `Unable to determine from OCR · ${templateLocation.expectedDocument}`
+        : `Expected Location: ${templateLocation.expectedDocument}, ${expectedPageLabel}`,
       documentType,
     };
   }

@@ -25,6 +25,10 @@ export interface OcrEnrichmentResult {
   diagnostics: OcrDiagnostics;
 }
 
+function shouldOcrAllPages(provider: OcrProvider): boolean {
+  return provider.name === "azure";
+}
+
 export async function enrichPagesWithOcr(
   pages: PageAnalysis[],
   fileName: string,
@@ -45,7 +49,8 @@ export async function enrichPagesWithOcr(
     return { pages, diagnostics };
   }
 
-  const ocrCandidates = pages.filter((page) => !page.hasEmbeddedText);
+  const ocrAllPages = shouldOcrAllPages(provider);
+  const ocrCandidates = ocrAllPages ? pages : pages.filter((page) => !page.hasEmbeddedText);
   diagnostics.candidatePageCount = ocrCandidates.length;
 
   if (ocrCandidates.length === 0) {
@@ -75,27 +80,28 @@ export async function enrichPagesWithOcr(
 
   const enrichedPages = pages.map((page) => {
     const ocrPage = ocrByPage.get(page.pageNumber);
-    if (!ocrPage || page.hasEmbeddedText) return page;
+    if (!ocrPage) return page;
 
-    const rawText = ocrPage.fullText.trim();
-    if (rawText.length === 0) return page;
-
+    const ocrRawText = ocrPage.fullText.trim();
+    const useOcrAsPrimary = !page.hasEmbeddedText && ocrRawText.length > 0;
+    const rawText = useOcrAsPrimary ? ocrRawText : page.rawText;
     const normalizedText = normalizeText(rawText);
     const { classification, confidence } = classifyPage(normalizedText, page.pageNumber);
 
-    diagnostics.enrichedPageCount += 1;
+    if (useOcrAsPrimary) diagnostics.enrichedPageCount += 1;
 
     return {
       ...page,
       rawText,
       normalizedText,
       charCount: rawText.length,
-      hasOcrText: true,
-      textSource: "ocr" as const,
+      hasOcrText: ocrRawText.length > 0 || Boolean(page.hasOcrText),
+      textSource: useOcrAsPrimary ? ("ocr" as const) : page.textSource ?? (page.hasEmbeddedText ? "embedded" : "none"),
       ocrConfidence: ocrPage.confidence,
       ocrLines: ocrPage.lines,
-      classification,
-      classificationConfidence: confidence,
+      ocrSelectionMarks: ocrPage.selectionMarks,
+      classification: useOcrAsPrimary || page.classification === "unknown" ? classification : page.classification,
+      classificationConfidence: useOcrAsPrimary ? confidence : page.classificationConfidence,
     };
   });
 

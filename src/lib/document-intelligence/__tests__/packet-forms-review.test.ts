@@ -40,9 +40,9 @@ describe("packet forms review", () => {
     expect(transfer?.status).toBe("conditional_review");
     expect(replacement?.status).toBe("conditional_review");
     expect(comparison?.status).toBe("conditional_review");
-    expect(electronic?.status).toBe("needs_manual_verification");
-    expect(privacy?.status).toBe("needs_manual_verification");
-    expect(fax?.status).toBe("needs_manual_verification");
+    expect(electronic?.status).toBe("ocr_unreadable");
+    expect(privacy?.status).toBe("ocr_unreadable");
+    expect(fax?.status).toBe("ocr_unreadable");
 
     expect(transfer?.expectedPageLabel).toBe("Typical Page Range 15-18");
     expect(replacement?.expectedPageLabel).toBe("Typical Page Range 19-22");

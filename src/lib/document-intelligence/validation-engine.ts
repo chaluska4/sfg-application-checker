@@ -10,23 +10,19 @@ import type {
   ValidationRule,
 } from "./types";
 import { extractPdfPages } from "./extract-pdf-text";
-import { detectCheckboxes, isCheckboxChecked } from "./detect-checkboxes";
-import { detectSignatures, isSignaturePresent } from "./detect-signatures";
+import { detectCheckboxes } from "./detect-checkboxes";
+import { detectSignatures } from "./detect-signatures";
 import { detectDates } from "./detect-dates";
 import { extractKnownValues, detectPacketFlags } from "./extract-known-values";
-import { hasPageType } from "./classify-pages";
-import { hasDateNearLabels } from "./detect-dates";
+import { isCheckboxChecked } from "./detect-checkboxes";
 import { minConfidence } from "./confidence";
 import { FORM_NAME, equitrustMarketEarlyNjRules } from "./templates/equitrust-marketearly-nj";
-import {
-  comparePageGroups,
-  resolveFindingLocation,
-  resolveEvidenceBoundingBox,
-  type PageEvidence,
-} from "./resolve-finding-page";
+import { comparePageGroups, resolveFindingLocation } from "./resolve-finding-page";
 import type { OcrProvider } from "./ocr";
-import { deriveExtractionMode, pageHasUsableText, resolveOcrProvider } from "./ocr";
+import { deriveExtractionMode, resolveOcrProvider } from "./ocr";
 import { appendPacketFormsReview, isRuleConditionUndetermined } from "./packet-forms-review";
+import { evaluateFieldWithEvidence, packetHasUsableText } from "./finding-evidence";
+import { getStatusDisplayLabel } from "../review-display";
 
 const DISCLAIMER =
   "Automated review supports manual due diligence. Final submission readiness must be confirmed by an authorized SFG reviewer.";
@@ -80,7 +76,7 @@ export async function runDocumentIntelligence(
 
   const items = validatePacket(packet, rules);
   const summary = summarize(items);
-  const status = determineStatus(items, extractionMode);
+  const status = determineStatus(items, extractionMode, packet);
   const completionScore = calculateScore(items);
 
   return {
@@ -111,8 +107,7 @@ function validatePacket(
   rules: ValidationRule[]
 ): ValidationResultItem[] {
   const items: ValidationResultItem[] = [];
-  const hasUsableText = packet.hasEmbeddedText || Boolean(packet.hasOcrText) || packet.pages.some(pageHasUsableText);
-  const lowConfidencePacket = !hasUsableText || packet.extractionMode === "image_only";
+  const lowConfidencePacket = !packetHasUsableText(packet);
 
   for (const rule of rules) {
     const isConditional = !!rule.condition;
@@ -137,16 +132,22 @@ function validatePacket(
     }
 
     if (isConditional && conditionActive) {
-      const result = evaluateRule(rule, packet, lowConfidencePacket);
-      if (result.status === "missing" || result.status === "needs_manual_verification") {
-        items.push({ ...result, status: "conditional_review", isConditional: true, message: `Conditional requirement: ${result.message ?? rule.label}` });
+      const result = evaluateRule(rule, packet);
+      if (isIssueStatus(result.status)) {
+        items.push({
+          ...result,
+          status: "conditional_review",
+          isConditional: true,
+          statusDisplay: getStatusDisplayLabel("conditional_review"),
+          message: `Conditional requirement: ${result.message ?? rule.label}`,
+        });
         continue;
       }
       items.push({ ...result, isConditional: true });
       continue;
     }
 
-    items.push(evaluateRule(rule, packet, lowConfidencePacket));
+    items.push(evaluateRule(rule, packet));
   }
 
   return appendPacketFormsReview(items, packet);
@@ -166,151 +167,18 @@ function isConditionActive(rule: ValidationRule, packet: DocumentPacket): boolea
   return false;
 }
 
-function evaluateRule(
-  rule: ValidationRule,
-  packet: DocumentPacket,
-  lowConfidencePacket: boolean
-): ValidationResultItem {
-  const evidence = buildPageEvidence(rule, packet);
-
-  if (lowConfidencePacket) {
-    return makeItem(
-      rule,
-      packet,
-      "needs_manual_verification",
-      "low",
-      !!rule.condition,
-      undefined,
-      evidence
-    );
-  }
-
-  switch (rule.kind) {
-    case "page_type": {
-      const required = rule.pageTypes ?? [];
-      const found = required.some((t) => hasPageType(packet.pages, t));
-      if (found) return makeItem(rule, packet, "present", "high", !!rule.condition, undefined, evidence);
-      const pageConfidence = packet.pages.some(pageHasUsableText) ? "medium" : "low";
-      return makeItem(
-        rule,
-        packet,
-        pageConfidence === "low" ? "needs_manual_verification" : "missing",
-        pageConfidence,
-        !!rule.condition,
-        `Expected document section not identified: ${rule.label}.`,
-        evidence
-      );
-    }
-    case "signature": {
-      const sig = isSignaturePresent(packet.signatures, rule.signatureLabel ?? "");
-      const sigEvidence: PageEvidence = {
-        ...evidence,
-        signaturePage: packet.signatures.find((s) => s.label === rule.signatureLabel)?.page ?? undefined,
-      };
-      if (sig.signed) return makeItem(rule, packet, "present", sig.confidence, !!rule.condition, undefined, sigEvidence);
-      const pageHasSigSection = packet.pages.some(
-        (p) => rule.pageTypes?.includes(p.classification) && pageHasUsableText(p)
-      );
-      if (!pageHasSigSection)
-        return makeItem(rule, packet, "needs_manual_verification", "low", !!rule.condition, "Signature area not confidently detected in extracted text.", sigEvidence);
-      return makeItem(rule, packet, "missing", "medium", !!rule.condition, "No e-signature indicator found near expected signature line.", sigEvidence);
-    }
-    case "date_near_label": {
-      const datePage = findDatePageForRule(rule, packet);
-      const dateEvidence = { ...evidence, datePage: datePage ?? undefined };
-      const pageText = datePage
-        ? (packet.pages.find((p) => p.pageNumber === datePage)?.rawText ?? "")
-        : packet.pages.map((p) => p.rawText).join("\n");
-      const { present, confidence } = hasDateNearLabels(pageText);
-      if (present) return makeItem(rule, packet, "present", confidence, !!rule.condition, undefined, dateEvidence);
-      return makeItem(rule, packet, "needs_manual_verification", "low", !!rule.condition, "Date not confidently detected — verify handwritten date manually.", dateEvidence);
-    }
-    case "allocation_100": {
-      const total = packet.flags.allocationTotal;
-      if (total === 100) return makeItem(rule, packet, "present", "high", false, undefined, evidence);
-      if (total === undefined)
-        return makeItem(rule, packet, "needs_manual_verification", "low", false, "Allocation percentages could not be read from document text.", evidence);
-      return makeItem(rule, packet, "missing", "medium", false, `Allocation total is ${total}%, expected 100%.`, evidence);
-    }
-    case "checkbox_yes":
-    case "label_value":
-    default: {
-      const valueKey = mapRuleToValueKey(rule.id);
-      const extracted = packet.values.find((v) => v.key === valueKey);
-      const valueEvidence: PageEvidence = { ...evidence, valuePage: extracted?.page ?? undefined };
-      if (extracted?.present)
-        return makeItem(rule, packet, "present", extracted.confidence, !!rule.condition, extracted.maskedPreview ? `Detected (${extracted.maskedPreview})` : undefined, valueEvidence);
-
-      const labelPage = findLabelPageForRule(rule, packet);
-      const labelEvidence: PageEvidence = {
-        ...valueEvidence,
-        valuePage: labelPage ?? valueEvidence.valuePage,
-      };
-      const textHit = labelPage !== null || rule.labelPatterns?.some((p) => p.test(packet.fullText));
-      const pageConf = packet.pages.some(pageHasUsableText) ? "medium" : "low";
-
-      if (textHit && pageConf !== "low")
-        return makeItem(rule, packet, "needs_manual_verification", "medium", !!rule.condition, "Section label found but value not confidently extracted.", labelEvidence);
-
-      if (pageConf === "low")
-        return makeItem(rule, packet, "needs_manual_verification", "low", !!rule.condition, "Insufficient embedded text for automated verification.", labelEvidence);
-
-      return makeItem(rule, packet, "missing", "medium", !!rule.condition, `Required information not detected: ${rule.label}.`, labelEvidence);
-    }
-  }
-}
-
-function buildPageEvidence(rule: ValidationRule, packet: DocumentPacket): PageEvidence {
-  const valueKey = mapRuleToValueKey(rule.id);
-  const extracted = packet.values.find((v) => v.key === valueKey);
-  const valuePage = extracted?.page ?? undefined;
-  const signaturePage = packet.signatures.find((s) => s.label === rule.signatureLabel)?.page ?? undefined;
-  const checkboxPage = packet.checkboxes.find((c) => c.label === rule.checkboxLabel)?.page ?? undefined;
-  const datePage = findDatePageForRule(rule, packet) ?? undefined;
-  const evidencePage = valuePage ?? signaturePage ?? checkboxPage ?? datePage;
-  const boundingBox = resolveEvidenceBoundingBox(rule, packet, evidencePage) ?? undefined;
-
-  return {
-    valuePage,
-    signaturePage,
-    checkboxPage,
-    datePage,
-    boundingBox,
-  };
-}
-
-function findLabelPageForRule(rule: ValidationRule, packet: DocumentPacket): number | null {
-  if (!rule.labelPatterns?.length) return null;
-  for (const page of packet.pages) {
-    if (rule.labelPatterns.some((p) => p.test(page.rawText))) return page.pageNumber;
-  }
-  return null;
-}
-
-function findDatePageForRule(rule: ValidationRule, packet: DocumentPacket): number | null {
-  if (rule.labelPatterns?.length) {
-    for (const page of packet.pages) {
-      if (rule.labelPatterns.some((p) => p.test(page.rawText))) return page.pageNumber;
-    }
-  }
-  return packet.dates.find((d) => d.present)?.page ?? null;
-}
-
-function mapRuleToValueKey(ruleId: string): string {
-  const map: Record<string, string> = {
-    "owner-info": "owner_name",
-    "annuitant-info": "annuitant_name",
-    "owner-ssn": "owner_ssn",
-    "product-name": "product_name",
-    "agent-info": "agent_name",
-    "premium-payment": "premium_amount",
-    beneficiary: "beneficiary",
-    "fna-risk": "risk_tolerance",
-    "fna-source": "source_of_funds",
-    "fna-distribution": "distribution_objectives",
-    "allocation-100": "allocation_total",
-  };
-  return map[ruleId] ?? ruleId;
+function evaluateRule(rule: ValidationRule, packet: DocumentPacket): ValidationResultItem {
+  const evidenceResult = evaluateFieldWithEvidence(rule, packet);
+  return makeItem(
+    rule,
+    packet,
+    evidenceResult.status,
+    evidenceResult.confidence,
+    !!rule.condition,
+    evidenceResult.message,
+    evidenceResult.pageEvidence,
+    evidenceResult
+  );
 }
 
 function makeItem(
@@ -320,9 +188,10 @@ function makeItem(
   confidence: ConfidenceLevel,
   isConditional: boolean,
   message?: string,
-  evidence: PageEvidence = {}
+  evidence: import("./resolve-finding-page").PageEvidence = {},
+  evidenceResult?: import("./finding-evidence").FieldEvidenceResult
 ): ValidationResultItem {
-  const location = resolveFindingLocation(rule, packet, evidence);
+  const location = resolveFindingLocation(rule, packet, evidence, evidenceResult?.disposition);
   const pageMeta =
     location.actualPage !== null
       ? packet.pages.find((p) => p.pageNumber === location.actualPage)
@@ -349,26 +218,49 @@ function makeItem(
     page: location.actualPage,
     pageLabel: location.pageLabel,
     boundingBox: evidence.boundingBox ?? null,
+    evidenceSnippet: evidenceResult?.evidenceSnippet ?? null,
+    evidenceReason: evidenceResult?.evidenceReason ?? message ?? null,
+    findingDisposition: evidenceResult?.disposition ?? null,
+    detectedFormName: evidenceResult?.detectedFormName ?? location.detectedFormName ?? null,
+    statusDisplay: getStatusDisplayLabel(status),
   };
+}
+
+function isIssueStatus(status: FieldStatus): boolean {
+  return (
+    status === "missing" ||
+    status === "incomplete" ||
+    status === "needs_manual_verification" ||
+    status === "low_confidence" ||
+    status === "ocr_unreadable"
+  );
 }
 
 function summarize(items: ValidationResultItem[]) {
   return {
     present: items.filter((i) => i.status === "present").length,
     missing: items.filter((i) => i.status === "missing").length,
+    incomplete: items.filter((i) => i.status === "incomplete").length,
     needsManualVerification: items.filter((i) => i.status === "needs_manual_verification").length,
     conditionalReview: items.filter((i) => i.status === "conditional_review").length,
+    lowConfidence: items.filter((i) => i.status === "low_confidence").length,
+    ocrUnreadable: items.filter((i) => i.status === "ocr_unreadable").length,
     notApplicable: items.filter((i) => i.status === "not_applicable").length,
     total: items.length,
   };
 }
 
-function determineStatus(items: ValidationResultItem[], mode: ExtractionMode): ReviewStatus {
-  if (mode === "image_only") return "manual-review";
+function determineStatus(
+  items: ValidationResultItem[],
+  mode: ExtractionMode,
+  packet: DocumentPacket
+): ReviewStatus {
+  if (mode === "image_only" && !packetHasUsableText(packet)) return "manual-review";
+
   const hasMissing = items.some((i) => i.status === "missing" && i.severity === "required");
   const hasReview = items.some(
     (i) =>
-      i.status === "needs_manual_verification" ||
+      isIssueStatus(i.status) ||
       i.status === "conditional_review" ||
       (i.status === "missing" && i.severity === "required")
   );
@@ -405,10 +297,13 @@ function groupItems(items: ValidationResultItem[]): GroupedChecklist[] {
   }
   const order: Record<FieldStatus, number> = {
     missing: 0,
-    conditional_review: 1,
-    needs_manual_verification: 2,
-    present: 3,
-    not_applicable: 4,
+    incomplete: 1,
+    ocr_unreadable: 2,
+    low_confidence: 3,
+    conditional_review: 4,
+    needs_manual_verification: 5,
+    present: 6,
+    not_applicable: 7,
   };
   return [...map.values()]
     .sort((a, b) =>

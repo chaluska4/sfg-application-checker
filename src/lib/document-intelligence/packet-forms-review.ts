@@ -10,6 +10,9 @@ import {
   type RequiredStatus,
 } from "./templates/equitrust-template-metadata";
 import { formatExpectedPageLabel, resolveFindingLocation } from "./resolve-finding-page";
+import { getStatusDisplayLabel } from "../review-display";
+import { hasPageType } from "./classify-pages";
+import { pageHasUsableText } from "./ocr";
 
 export const PACKET_FORMS_SECTION = "Packet Forms Review";
 
@@ -128,7 +131,6 @@ export function isConditionalTriggerUndetermined(
 ): boolean {
   if (!lowConfidencePacket) return false;
   if (isConditionalTriggerActive(condition, packet)) return false;
-  if (packet.extractionMode === "image_only") return true;
   return !hasConditionalTriggerEvidence(condition, packet);
 }
 
@@ -148,7 +150,6 @@ export function isRuleConditionUndetermined(
   if (dependsOn === "source_of_funds_other") {
     if (!lowConfidencePacket) return false;
     if (packet.flags.sourceOfFundsOther) return false;
-    if (packet.extractionMode === "image_only") return true;
     return !/source of funds/i.test(packet.fullText);
   }
   return false;
@@ -159,9 +160,16 @@ function resolvePacketFormStatus(
   packet: DocumentPacket,
   lowConfidencePacket: boolean
 ): FieldStatus | null {
+  if (spec.documentType && spec.documentType !== "unknown" && hasPageType(packet.pages, spec.documentType)) {
+    return null;
+  }
+
   if (spec.condition) {
     if (isConditionalTriggerActive(spec.condition, packet)) {
-      return "needs_manual_verification";
+      if (spec.documentType && spec.documentType !== "unknown") {
+        return hasPageType(packet.pages, spec.documentType) ? null : "missing";
+      }
+      return lowConfidencePacket ? "ocr_unreadable" : "low_confidence";
     }
     if (isConditionalTriggerUndetermined(spec.condition, packet, lowConfidencePacket)) {
       return "conditional_review";
@@ -173,7 +181,7 @@ function resolvePacketFormStatus(
     return "conditional_review";
   }
 
-  return "needs_manual_verification";
+  return lowConfidencePacket ? "ocr_unreadable" : "low_confidence";
 }
 
 function makePacketFormItem(
@@ -202,10 +210,14 @@ function makePacketFormItem(
 
   const message =
     status === "conditional_review" && spec.condition
-      ? `Verify whether ${spec.label} is required based on application answers (trigger could not be read from scanned pages).`
-      : status === "needs_manual_verification"
-        ? "Scanned pages — confirm this form is present and complete using Expected Location guidance."
-        : undefined;
+      ? `Verify whether ${spec.label} is required based on application answers (trigger could not be read from OCR).`
+      : status === "missing"
+        ? `${spec.label} required by application answers but not detected in OCR.`
+        : status === "ocr_unreadable"
+          ? "No readable OCR output — confirm this form using template guidance."
+          : status === "low_confidence"
+            ? "Form presence could not be confirmed from OCR — verify manually."
+            : undefined;
 
   return {
     ruleId: spec.id,
@@ -228,6 +240,9 @@ function makePacketFormItem(
     page: location.actualPage,
     pageLabel: location.pageLabel,
     boundingBox: null,
+    evidenceReason: message ?? null,
+    statusDisplay: getStatusDisplayLabel(status),
+    detectedFormName: location.detectedFormName ?? null,
   };
 }
 
@@ -235,8 +250,8 @@ export function buildPacketFormsReviewItems(packet: DocumentPacket): ValidationR
   const hasUsableText =
     packet.hasEmbeddedText ||
     Boolean(packet.hasOcrText) ||
-    packet.pages.some((p) => p.hasEmbeddedText || p.hasOcrText);
-  const lowConfidencePacket = !hasUsableText || packet.extractionMode === "image_only";
+    packet.pages.some((p) => pageHasUsableText(p));
+  const lowConfidencePacket = !hasUsableText;
 
   const items: ValidationResultItem[] = [];
 
