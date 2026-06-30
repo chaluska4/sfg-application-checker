@@ -1,6 +1,7 @@
 import { runDocumentIntelligence } from "@/lib/document-intelligence";
 import { resolveOcrProvider } from "@/lib/document-intelligence/ocr/resolve-ocr-provider";
 import type { ReviewResult } from "@/lib/validation/types";
+import { clonePdfArrayBuffer } from "@/lib/pdf-buffer";
 import {
   isPdfBuffer,
   isPdfWithinSizeLimit,
@@ -31,7 +32,8 @@ export async function processReviewPdf(
   }
 
   const ocrProvider = resolveOcrProvider();
-  return runDocumentIntelligence(arrayBuffer, sanitizeFileName(fileName), undefined, {
+  const safePdfBuffer = clonePdfArrayBuffer(arrayBuffer);
+  return runDocumentIntelligence(safePdfBuffer, sanitizeFileName(fileName), undefined, {
     ocrProvider,
   });
 }

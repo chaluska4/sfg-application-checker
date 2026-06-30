@@ -1,5 +1,6 @@
 import type { OcrProvider } from "./ocr-provider";
 import type { OcrRecognizeRequest, OcrResult } from "./types";
+import { clonePdfArrayBuffer, logPdfBufferDiagnostics } from "@/lib/pdf-buffer";
 import {
   type AzureAnalyzeOperationOutput,
   formatAzurePagesQuery,
@@ -26,7 +27,8 @@ function normalizeEndpoint(endpoint: string): string {
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  return Buffer.from(buffer).toString("base64");
+  const safeBuffer = clonePdfArrayBuffer(buffer);
+  return Buffer.from(safeBuffer).toString("base64");
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -53,6 +55,10 @@ export function createAzureDocumentIntelligenceProvider(
         throw new Error("Azure Document Intelligence OCR requires pdfBuffer on the recognize request.");
       }
 
+      logPdfBufferDiagnostics("azure-ocr-request", request.pdfBuffer);
+      const safePdfBuffer = clonePdfArrayBuffer(request.pdfBuffer);
+      logPdfBufferDiagnostics("azure-ocr-safe-copy", safePdfBuffer);
+
       const pageNumbers = request.pages.map((page) => page.pageNumber);
       const pagesQuery = formatAzurePagesQuery(pageNumbers);
       const analyzeUrl = new URL(
@@ -68,7 +74,7 @@ export function createAzureDocumentIntelligenceProvider(
           "Ocp-Apim-Subscription-Key": config.apiKey,
         },
         body: JSON.stringify({
-          base64Source: arrayBufferToBase64(request.pdfBuffer),
+          base64Source: arrayBufferToBase64(safePdfBuffer),
         }),
       });
 
