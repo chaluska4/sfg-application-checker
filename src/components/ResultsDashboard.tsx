@@ -13,13 +13,15 @@ import {
 } from "@/lib/review-display";
 import { ArrowLeft, FileText, AlertCircle, Info } from "lucide-react";
 import { OcrDebugDiagnostics } from "./OcrDebugDiagnostics";
+import { PdfEvidenceViewer } from "./PdfEvidenceViewer";
 
 interface ResultsDashboardProps {
   result: ReviewResult;
+  pdfFile?: File | null;
   onReset: () => void;
 }
 
-export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
+export function ResultsDashboard({ result, pdfFile, onReset }: ResultsDashboardProps) {
   const issueGroups = buildMasterReviewGroups(result.items);
   const packetFormsGroups = issueGroups.filter((g) => g.section === PACKET_FORMS_SECTION);
   const coreIssueGroups = issueGroups.filter((g) => g.section !== PACKET_FORMS_SECTION);
@@ -91,6 +93,8 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
           />
         </div>
       </div>
+
+      {pdfFile && <PdfEvidenceViewer pdfFile={pdfFile} result={result} />}
 
       <ChecklistGroup
         groups={coreIssueGroups}

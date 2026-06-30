@@ -4,9 +4,10 @@ import { Footer } from "./Footer";
 interface PageShellProps {
   children: React.ReactNode;
   wide?: boolean;
+  extraWide?: boolean;
 }
 
-export function PageShell({ children, wide = false }: PageShellProps) {
+export function PageShell({ children, wide = false, extraWide = false }: PageShellProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
@@ -23,7 +24,7 @@ export function PageShell({ children, wide = false }: PageShellProps) {
 
         <div
           className={`relative z-10 mx-auto w-full px-4 py-8 sm:px-6 sm:py-10 lg:px-8 ${
-            wide ? "max-w-5xl" : "max-w-3xl"
+            extraWide ? "max-w-7xl" : wide ? "max-w-5xl" : "max-w-3xl"
           }`}
         >
           {children}

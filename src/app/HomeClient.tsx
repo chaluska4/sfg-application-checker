@@ -25,6 +25,7 @@ export default function HomeClient({ devBypassSession }: HomeClientProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReviewResult | null>(null);
+  const [reviewedFile, setReviewedFile] = useState<File | null>(null);
 
   const showUpload = canShowUploadUI(auth);
 
@@ -45,6 +46,7 @@ export default function HomeClient({ devBypassSession }: HomeClientProps) {
 
     try {
       const data = await submitReviewPdf(file);
+      setReviewedFile(file);
       setResult(data);
     } catch (err) {
       if (err instanceof ReviewApiError) {
@@ -59,13 +61,14 @@ export default function HomeClient({ devBypassSession }: HomeClientProps) {
 
   const handleReset = () => {
     setResult(null);
+    setReviewedFile(null);
     setError(null);
   };
 
   return (
-    <PageShell wide={!!result}>
+    <PageShell wide={!!result} extraWide={!!result}>
       {result ? (
-        <ResultsDashboard result={result} onReset={handleReset} />
+        <ResultsDashboard result={result} pdfFile={reviewedFile} onReset={handleReset} />
       ) : (
         <div className="mx-auto max-w-3xl">
           {auth.loading ? (

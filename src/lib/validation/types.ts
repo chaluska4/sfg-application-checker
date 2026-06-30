@@ -10,4 +10,5 @@ export type {
   ExtractionMode,
   OcrDebugInfo,
   OcrDebugPageInfo,
+  HighlightRegion,
 } from "../document-intelligence/types";
