@@ -12,6 +12,7 @@ import { getPageClassificationLabel } from "./page-classification-labels";
 import { getLocationForRule } from "./templates/equitrust-template-metadata";
 import { equitrustMarketEarlyNJ } from "./templates/equitrust-template-metadata";
 import { findOcrBoundingBoxForPatterns, pageHasUsableText } from "./ocr";
+import { pageHasAllocationTable } from "./parse-allocation-table";
 
 export const PACKET_LEVEL_LABEL = "Packet-level review";
 
@@ -245,12 +246,12 @@ export function findPageByClassification(
 
 export function findPageForAllocation(pages: PageAnalysis[]): number | null {
   const allocationPage = pages.find(
-    (p) => p.classification === "initial_premium_allocation"
+    (p) => p.classification === "initial_premium_allocation" || pageHasAllocationTable(p)
   );
   if (allocationPage) return allocationPage.pageNumber;
 
   for (const page of pages) {
-    if (/allocation|premium allocation/i.test(page.rawText)) {
+    if (/initial premium allocation.{0,25}required/i.test(page.rawText)) {
       return page.pageNumber;
     }
   }

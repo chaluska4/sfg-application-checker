@@ -6,13 +6,103 @@ const DATE_PATTERNS = [
   /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b/gi,
 ];
 
-const DATE_LABELS = [
-  /owner.{0,20}date/i,
-  /agent.{0,20}date/i,
-  /signature.{0,20}date/i,
-  /date signed/i,
+const DOB_CONTEXT_PATTERN =
+  /date\s+of\s+birth|d\.?\s*o\.?\s*b\.?|birth\s*date|born\s+on|birthday/i;
+
+const SIGNATURE_DATE_LABELS = [
+  /owner.{0,30}signature.{0,20}date/i,
+  /owner.{0,20}date\s*(?:signed|of\s+signature)/i,
+  /agent.{0,30}signature.{0,20}date/i,
+  /agent.{0,20}date\s*(?:signed|of\s+signature)/i,
+  /producer.{0,30}signature.{0,20}date/i,
+  /signature\s+date/i,
+  /date\s+signed/i,
+  /disclosure.{0,30}signature.{0,20}date/i,
+];
+
+const GENERIC_DATE_LABELS = [
   /application date/i,
 ];
+
+const PROXIMITY_WINDOW = 160;
+
+function resetDatePatterns(): void {
+  for (const pattern of DATE_PATTERNS) {
+    pattern.lastIndex = 0;
+  }
+}
+
+function findDatesInText(text: string, start = 0, end = text.length): { value: string; index: number }[] {
+  const slice = text.slice(start, end);
+  const dates: { value: string; index: number }[] = [];
+
+  for (const pattern of DATE_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(slice)) !== null) {
+      dates.push({
+        value: match[0],
+        index: start + match.index,
+      });
+    }
+  }
+
+  return dates;
+}
+
+function isDobContext(text: string, dateIndex: number): boolean {
+  const window = text.slice(Math.max(0, dateIndex - 90), dateIndex + 30);
+  return DOB_CONTEXT_PATTERN.test(window);
+}
+
+function isSignatureDateLabelContext(labelText: string, nearbyText: string): boolean {
+  if (DOB_CONTEXT_PATTERN.test(labelText)) return false;
+  if (/owner|annuitant/i.test(labelText) && /date/i.test(labelText) && !/signature/i.test(labelText)) {
+    return DOB_CONTEXT_PATTERN.test(nearbyText);
+  }
+  return true;
+}
+
+export function hasSignatureDateNearLabels(
+  text: string,
+  labelPatterns?: RegExp[]
+): { present: boolean; confidence: ConfidenceLevel; matchedDate?: string } {
+  const patterns = labelPatterns?.length ? labelPatterns : [...SIGNATURE_DATE_LABELS, ...GENERIC_DATE_LABELS];
+
+  for (const pattern of patterns) {
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+    const regex = new RegExp(pattern.source, flags);
+    let labelMatch: RegExpExecArray | null;
+
+    while ((labelMatch = regex.exec(text)) !== null) {
+      const labelStart = labelMatch.index;
+      const labelText = labelMatch[0];
+      const windowEnd = Math.min(text.length, labelStart + PROXIMITY_WINDOW);
+      const nearbyText = text.slice(labelStart, windowEnd);
+
+      if (!isSignatureDateLabelContext(labelText, nearbyText)) continue;
+
+      const dates = findDatesInText(text, labelStart, windowEnd).filter(
+        (date) => !isDobContext(text, date.index)
+      );
+
+      if (dates.length > 0) {
+        const signatureAdjacent = /signature/i.test(nearbyText);
+        return {
+          present: true,
+          confidence: signatureAdjacent ? "high" : "medium",
+          matchedDate: dates[0].value,
+        };
+      }
+    }
+  }
+
+  return { present: false, confidence: "low" };
+}
+
+export function hasDateNearLabels(text: string): { present: boolean; confidence: ConfidenceLevel } {
+  return hasSignatureDateNearLabels(text);
+}
 
 export function detectDates(pages: PageAnalysis[]): DetectedDate[] {
   const results: DetectedDate[] = [];
@@ -20,18 +110,14 @@ export function detectDates(pages: PageAnalysis[]): DetectedDate[] {
   for (const page of pages) {
     if (!pageHasUsableText(page)) continue;
     const text = page.rawText;
-    const hasDateLabel = DATE_LABELS.some((p) => p.test(text));
-    const hasDateValue = DATE_PATTERNS.some((p) => {
-      p.lastIndex = 0;
-      return p.test(text);
-    });
+    const signatureDate = hasSignatureDateNearLabels(text);
 
-    if (hasDateLabel || hasDateValue) {
+    if (signatureDate.present) {
       results.push({
-        label: hasDateLabel ? "labeled_date" : "date_value",
+        label: "signature_date",
         page: page.pageNumber,
-        present: hasDateValue,
-        confidence: hasDateLabel && hasDateValue ? "high" : hasDateValue ? "medium" : "low",
+        present: true,
+        confidence: signatureDate.confidence,
       });
     }
   }
@@ -39,25 +125,21 @@ export function detectDates(pages: PageAnalysis[]): DetectedDate[] {
   return results;
 }
 
-export function hasDateNearLabels(text: string): { present: boolean; confidence: ConfidenceLevel } {
-  const normalized = text;
-  const labelHit = DATE_LABELS.some((p) => p.test(normalized));
-  const valueHit = DATE_PATTERNS.some((p) => {
-    p.lastIndex = 0;
-    return p.test(normalized);
-  });
-  if (labelHit && valueHit) return { present: true, confidence: "high" };
-  if (valueHit) return { present: true, confidence: "medium" };
-  return { present: false, confidence: "low" };
-}
+export function extractDateMatches(text: string, signatureOnly = true): string[] {
+  if (signatureOnly) {
+    const hit = hasSignatureDateNearLabels(text);
+    return hit.matchedDate ? [hit.matchedDate] : [];
+  }
 
-export function extractDateMatches(text: string): string[] {
   const matches: string[] = [];
+  resetDatePatterns();
   for (const pattern of DATE_PATTERNS) {
     pattern.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = pattern.exec(text)) !== null) {
-      matches.push(m[0]);
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      if (!isDobContext(text, match.index)) {
+        matches.push(match[0]);
+      }
     }
   }
   return matches;

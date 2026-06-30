@@ -53,7 +53,7 @@ export function detectSignatures(pages: PageAnalysis[]): DetectedSignature[] {
         }
       }
 
-      const signed = hasEsign || /signed\s+on|signature\s+date/i.test(text);
+      const signed = hasEsign || (/\bsigned\b/i.test(text) && /signature/i.test(text));
       results.push({
         label,
         page: page.pageNumber,
