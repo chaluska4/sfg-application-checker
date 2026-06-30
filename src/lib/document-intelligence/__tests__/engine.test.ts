@@ -57,8 +57,8 @@ describe("date detection", () => {
     expect(result.present).toBe(true);
   });
 
-  it("extracts date matches", () => {
-    expect(extractDateMatches("Signed 01/02/2026")).toContain("01/02/2026");
+  it("extracts date matches when signatureOnly is false", () => {
+    expect(extractDateMatches("Signed 01/02/2026", false)).toContain("01/02/2026");
   });
 });
 
@@ -80,12 +80,25 @@ describe("checkbox inference", () => {
 });
 
 describe("allocation total", () => {
-  it("equals 100 when percentages sum to 100", () => {
-    expect(computeAllocationTotal("Allocation 60% Fixed 40% Index")).toBe(100);
+  const allocationTable = `
+INITIAL PREMIUM ALLOCATION - REQUIRED
+Fixed Account 40%
+S&P Index 35%
+Global Index 25%
+Total 100%
+`;
+
+  it("equals 100 when allocation table percentages sum to 100", () => {
+    expect(computeAllocationTotal(allocationTable)).toBe(100);
   });
 
-  it("fails when not 100", () => {
-    expect(computeAllocationTotal("50% 30%")).toBe(80);
+  it("fails when allocation table does not total 100", () => {
+    const partial = `
+INITIAL PREMIUM ALLOCATION - REQUIRED
+Fund A 50%
+Fund B 30%
+`;
+    expect(computeAllocationTotal(partial)).toBe(80);
   });
 });
 

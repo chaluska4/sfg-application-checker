@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import { getPageClassificationLabel } from "./page-classification-labels";
 import { pageHasUsableText } from "./ocr";
+import { pageHasAllocationTable } from "./parse-allocation-table";
 import {
   findPageByClassification,
   findPageMatchingLabelPatterns,
@@ -16,7 +17,7 @@ import {
 } from "./resolve-finding-page";
 import { isCheckboxChecked } from "./detect-checkboxes";
 import { isSignaturePresent } from "./detect-signatures";
-import { hasDateNearLabels } from "./detect-dates";
+import { hasSignatureDateNearLabels } from "./detect-dates";
 import { minConfidence } from "./confidence";
 
 const PII_SNIPPET_PATTERNS = [
@@ -268,22 +269,27 @@ export function evaluateFieldWithEvidence(
       const datePage = sectionPageNumber;
       const pageText = datePage
         ? (packet.pages.find((p) => p.pageNumber === datePage)?.rawText ?? "")
-        : packet.pages.map((p) => p.rawText).join("\n");
-      const { present, confidence } = hasDateNearLabels(pageText);
+        : packet.pages
+            .filter((p) =>
+              p.classification === "application_page_3_signatures" ||
+              p.classification === "acknowledgments_signatures" ||
+              p.classification === "product_disclosure"
+            )
+            .map((p) => p.rawText)
+            .join("\n");
+      const { present, confidence, matchedDate } = hasSignatureDateNearLabels(
+        pageText,
+        rule.labelPatterns
+      );
       const dateEvidence = buildBaseEvidence(rule, packet, datePage);
 
       if (present) {
-        const snippet = searchOcrSnippetNearLabel(
-          packet.pages.find((p) => p.pageNumber === datePage) ?? packet.pages[0],
-          rule.labelPatterns,
-          [/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/]
-        );
         return {
           status: "present",
           confidence,
           disposition: "found_complete",
-          evidenceSnippet: snippet?.snippet,
-          evidenceReason: "Date found near expected label in OCR/text.",
+          evidenceSnippet: matchedDate,
+          evidenceReason: "Signature date found near expected label (DOB excluded).",
           detectedFormName: sectionPage ? getPageClassificationLabel(sectionPage.classification) : undefined,
           pageEvidence: { ...dateEvidence, datePage: datePage ?? undefined },
         };
@@ -354,8 +360,15 @@ export function evaluateFieldWithEvidence(
     }
 
     case "allocation_100": {
+      const allocationPage =
+        packet.pages.find((p) => pageHasAllocationTable(p)) ??
+        packet.pages.find((p) => p.classification === "initial_premium_allocation");
       const total = packet.flags.allocationTotal;
-      const evidence = buildBaseEvidence(rule, packet, sectionPageNumber);
+      const evidence = buildBaseEvidence(
+        rule,
+        packet,
+        allocationPage?.pageNumber ?? sectionPageNumber
+      );
       if (total === 100) {
         return {
           status: "present",

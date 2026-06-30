@@ -3,10 +3,14 @@ import { hasDateNearLabels } from "./detect-dates";
 import { pageTextConfidence } from "./confidence";
 import { findPageForAllocation } from "./resolve-finding-page";
 import { ocrConfidenceForPage, pageHasUsableText } from "./ocr";
+import {
+  computeAllocationTotal,
+  computeAllocationTotalFromPages,
+  pageHasAllocationTable,
+} from "./parse-allocation-table";
 
 const SSN_PATTERN = /\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b/;
 const CURRENCY_PATTERN = /\$[\d,]+(?:\.\d{2})?/g;
-const PERCENT_PATTERN = /(\d{1,3}(?:\.\d+)?)\s*%/g;
 
 const FIELD_SPECS: {
   key: string;
@@ -28,6 +32,7 @@ const FIELD_SPECS: {
 ];
 
 export function extractKnownValues(pages: PageAnalysis[], fullText: string): SafeExtractedValue[] {
+  void fullText;
   const values: SafeExtractedValue[] = [];
 
   for (const spec of FIELD_SPECS) {
@@ -81,31 +86,24 @@ export function extractKnownValues(pages: PageAnalysis[], fullText: string): Saf
     }
   }
 
-  const allocationTotal = computeAllocationTotal(fullText);
+  const allocationTotal = computeAllocationTotalFromPages(pages);
+  const allocationPageNumber =
+    pages.find((page) => pageHasAllocationTable(page))?.pageNumber ??
+    findPageForAllocation(pages);
+
   values.push({
     key: "allocation_total",
     label: "Allocation Total",
     present: allocationTotal !== null,
     maskedPreview: allocationTotal !== null ? `${allocationTotal}%` : undefined,
-    page: findPageForAllocation(pages),
+    page: allocationPageNumber,
     confidence: allocationTotal !== null ? (allocationTotal === 100 ? "high" : "medium") : "low",
   });
 
   return values;
 }
 
-export function computeAllocationTotal(fullText: string): number | null {
-  const percents: number[] = [];
-  let m: RegExpExecArray | null;
-  PERCENT_PATTERN.lastIndex = 0;
-  while ((m = PERCENT_PATTERN.exec(fullText)) !== null) {
-    const n = parseFloat(m[1]);
-    if (!isNaN(n) && n <= 100) percents.push(n);
-  }
-  if (percents.length < 2) return null;
-  const sum = percents.reduce((a, b) => a + b, 0);
-  return Math.round(sum * 100) / 100;
-}
+export { computeAllocationTotal, computeAllocationTotalFromPages };
 
 function maskSsn(raw: string): string {
   const digits = raw.replace(/\D/g, "");
@@ -137,7 +135,7 @@ export function detectPacketFlags(
     replacementSelected,
     transferSelected,
     sourceOfFundsOther,
-    allocationTotal: computeAllocationTotal(fullText) ?? undefined,
+    allocationTotal: computeAllocationTotalFromPages(pages) ?? undefined,
   };
 }
 
