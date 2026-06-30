@@ -1,5 +1,5 @@
 import type { PageAnalysis } from "../types";
-import { classifyPage } from "../classify-pages";
+import { enrichPageWithClassification } from "../classify-pages";
 import { normalizeText } from "../extract-pdf-text";
 import { pageTextConfidence } from "../confidence";
 import type { OcrProvider } from "./ocr-provider";
@@ -88,22 +88,32 @@ export async function enrichPagesWithOcr(
     const useOcrAsPrimary = !page.hasEmbeddedText && ocrRawText.length > 0;
     const rawText = useOcrAsPrimary ? ocrRawText : page.rawText;
     const normalizedText = normalizeText(rawText);
-    const { classification, confidence } = classifyPage(normalizedText, page.pageNumber);
+    const classified = enrichPageWithClassification(
+      {
+        ...page,
+        rawText,
+        normalizedText,
+        charCount: rawText.length,
+        hasOcrText: ocrRawText.length > 0 || Boolean(page.hasOcrText),
+        textSource: useOcrAsPrimary ? ("ocr" as const) : page.textSource ?? (page.hasEmbeddedText ? "embedded" : "none"),
+        ocrConfidence: ocrPage.confidence,
+        ocrLines: ocrPage.lines,
+        ocrSelectionMarks: ocrPage.selectionMarks,
+      },
+      normalizedText
+    );
 
     if (useOcrAsPrimary) diagnostics.enrichedPageCount += 1;
 
     return {
-      ...page,
-      rawText,
-      normalizedText,
-      charCount: rawText.length,
-      hasOcrText: ocrRawText.length > 0 || Boolean(page.hasOcrText),
-      textSource: useOcrAsPrimary ? ("ocr" as const) : page.textSource ?? (page.hasEmbeddedText ? "embedded" : "none"),
-      ocrConfidence: ocrPage.confidence,
-      ocrLines: ocrPage.lines,
-      ocrSelectionMarks: ocrPage.selectionMarks,
-      classification: useOcrAsPrimary || page.classification === "unknown" ? classification : page.classification,
-      classificationConfidence: useOcrAsPrimary ? confidence : page.classificationConfidence,
+      ...classified,
+      classification:
+        useOcrAsPrimary || page.classification === "unknown"
+          ? classified.classification
+          : page.classification,
+      classificationConfidence: useOcrAsPrimary
+        ? classified.classificationConfidence
+        : page.classificationConfidence,
     };
   });
 

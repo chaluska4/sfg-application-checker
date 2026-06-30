@@ -1,7 +1,9 @@
 import type { ConfidenceLevel, PageAnalysis, ValidationResultItem } from "../types";
 import { getPageClassificationLabel } from "../page-classification-labels";
+import { DOCUMENT_TYPE_LABELS, PAGE_SUBTYPE_LABELS } from "../document-taxonomy";
 import { pageHasUsableText } from "./enrich-pages-with-ocr";
 import type { OcrDiagnostics } from "./ocr-dev-log";
+import type { ValidationStageResult } from "../scoped-validation";
 
 const SNIPPET_MAX_LENGTH = 400;
 
@@ -25,12 +27,25 @@ export interface OcrDebugPageInfo {
   pageNumber: number;
   detectedFormName: string;
   classificationLabel: string;
+  documentType?: string;
+  pageSubtype?: string;
+  classificationReason?: string;
+  classificationScore?: number;
+  isIgnored?: boolean;
   textCharacterCount: number;
   lineCount: number;
   selectionMarkCount: number;
   averageConfidence: ConfidenceLevel;
   firstTextSnippetMasked: string;
   hasReadableText: boolean;
+}
+
+export interface OcrDebugRuleTrace {
+  ruleId: string;
+  label: string;
+  status: string;
+  confidenceScore?: number | null;
+  stages?: ValidationStageResult[];
 }
 
 export interface OcrDebugInfo {
@@ -40,11 +55,15 @@ export interface OcrDebugInfo {
   ocrError?: string;
   totalPages: number;
   pagesWithText: number;
+  ignoredPageCount?: number;
   totalCharacters: number;
   totalLines: number;
   totalSelectionMarks: number;
   averageConfidence: ConfidenceLevel;
+  ocrDurationMs?: number;
+  validationDurationMs?: number;
   diagnosticSummary: string[];
+  ruleTraces?: OcrDebugRuleTrace[];
   pages: OcrDebugPageInfo[];
 }
 
@@ -120,7 +139,8 @@ export function buildOcrDebugInfo(
   pages: PageAnalysis[],
   ocrProviderName: string,
   ocrDiagnostics: OcrDiagnostics | undefined,
-  items: ValidationResultItem[]
+  items: ValidationResultItem[],
+  timing?: { ocrDurationMs?: number; validationDurationMs?: number }
 ): OcrDebugInfo {
   const pageInfos: OcrDebugPageInfo[] = pages.map((page) => {
     const lineCount = pageLineCount(page);
@@ -132,6 +152,14 @@ export function buildOcrDebugInfo(
       pageNumber: page.pageNumber,
       detectedFormName: getPageClassificationLabel(page.classification),
       classificationLabel: page.classification,
+      documentType: page.documentType ? DOCUMENT_TYPE_LABELS[page.documentType] : undefined,
+      pageSubtype:
+        page.pageSubtype && page.pageSubtype !== "unknown"
+          ? PAGE_SUBTYPE_LABELS[page.pageSubtype]
+          : undefined,
+      classificationReason: page.classificationReason,
+      classificationScore: page.classificationScore,
+      isIgnored: page.isIgnored,
       textCharacterCount: page.rawText.length,
       lineCount,
       selectionMarkCount,
@@ -152,6 +180,18 @@ export function buildOcrDebugInfo(
 
   const ocrUnreadableFindingCount = items.filter((item) => item.status === "ocr_unreadable").length;
 
+  const ignoredPageCount = pageInfos.filter((page) => page.isIgnored).length;
+
+  const ruleTraces: OcrDebugRuleTrace[] = items
+    .filter((item) => item.validationTrace?.length)
+    .map((item) => ({
+      ruleId: item.ruleId,
+      label: item.label,
+      status: item.statusDisplay ?? item.status,
+      confidenceScore: item.confidenceScore,
+      stages: item.validationTrace ?? undefined,
+    }));
+
   const debugCore = {
     ocrProvider: ocrProviderName,
     ocrAttempted: ocrDiagnostics?.attempted ?? false,
@@ -159,15 +199,26 @@ export function buildOcrDebugInfo(
     ocrError: ocrDiagnostics?.error,
     totalPages: pages.length,
     pagesWithText,
+    ignoredPageCount,
     totalCharacters,
     totalLines,
     totalSelectionMarks,
     averageConfidence: averageConfidenceLevel(allConfidenceLevels),
+    ocrDurationMs: timing?.ocrDurationMs,
+    validationDurationMs: timing?.validationDurationMs,
+    ruleTraces,
     pages: pageInfos,
   };
 
+  const diagnosticSummary = [
+    ...buildOcrDiagnosticSummary(debugCore, ocrUnreadableFindingCount),
+    ...(ignoredPageCount > 0
+      ? [`${ignoredPageCount} administrative page(s) excluded from validation.`]
+      : []),
+  ];
+
   return {
     ...debugCore,
-    diagnosticSummary: buildOcrDiagnosticSummary(debugCore, ocrUnreadableFindingCount),
+    diagnosticSummary,
   };
 }

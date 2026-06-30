@@ -1,5 +1,9 @@
 import type { OcrBoundingBox } from "./ocr/types";
 import type { OcrDebugInfo } from "./ocr/ocr-debug";
+import type { DocumentTypeId, PageSubtypeId } from "./document-taxonomy";
+import type { ValidationStageResult } from "./scoped-validation";
+
+export type { DocumentTypeId, PageSubtypeId };
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -50,6 +54,13 @@ export type PageTextSource = "embedded" | "ocr" | "none";
 
 export type { OcrBoundingBox };
 
+export interface HighlightRegion {
+  pageNumber: number;
+  label: string;
+  boundingBox?: OcrBoundingBox;
+  snippet?: string;
+}
+
 export interface PageAnalysis {
   pageNumber: number;
   rawText: string;
@@ -65,6 +76,13 @@ export interface PageAnalysis {
   ocrSelectionMarks?: { state: "selected" | "unselected"; confidence: ConfidenceLevel; boundingBox?: OcrBoundingBox }[];
   classification: PageClassification;
   classificationConfidence: ConfidenceLevel;
+  /** Hierarchical document identity */
+  documentType?: DocumentTypeId;
+  pageSubtype?: PageSubtypeId;
+  classificationReason?: string;
+  classificationScore?: number;
+  /** Administrative / transmission pages excluded from validation */
+  isIgnored?: boolean;
 }
 
 export interface DetectedCheckbox {
@@ -151,6 +169,10 @@ export interface ValidationRule {
   condition?: RuleCondition;
   /** Key into template reviewItemLocations for manual-review guidance */
   locationKey?: string;
+  /** When true, global OCR fallback is permitted if scoped document is not located */
+  allowGlobalFallback?: boolean;
+  /** When true, scoped search includes administratively classified pages */
+  includeAdministrativePages?: boolean;
 }
 
 export type TemplatePageConfidence = "fixed" | "approximate" | "unknown";
@@ -197,6 +219,14 @@ export interface ValidationResultItem {
   detectedFormName?: string | null;
   /** UI label: PASS, MISSING, INCOMPLETE, etc. */
   statusDisplay?: string | null;
+  /** Numeric confidence 0–100 for processor-grade scoring */
+  confidenceScore?: number | null;
+  /** Scoped validation stage trace */
+  validationTrace?: ValidationStageResult[] | null;
+  /** Future PDF viewer: scroll/zoom/highlight targets */
+  highlightRegions?: HighlightRegion[] | null;
+  expectedSummary?: string | null;
+  foundSummary?: string | null;
 }
 
 export interface ValidationResult {

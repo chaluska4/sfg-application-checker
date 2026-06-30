@@ -1,7 +1,7 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import type { PageAnalysis } from "./types";
 import { pageTextConfidence } from "./confidence";
-import { classifyPage } from "./classify-pages";
+import { enrichPageWithClassification } from "./classify-pages";
 import type { OcrProvider } from "./ocr";
 import { enrichPagesWithOcr } from "./ocr";
 import { clonePdfArrayBuffer } from "@/lib/pdf-buffer";
@@ -39,18 +39,23 @@ export async function extractPdfPages(
     if (hasEmbeddedText) anyText = true;
 
     const normalizedText = normalizeText(rawText);
-    const { classification, confidence } = classifyPage(normalizedText, i + 1);
+
+    const classified = enrichPageWithClassification(
+      {
+        pageNumber: i + 1,
+        rawText,
+        normalizedText,
+        charCount: rawText.length,
+        hasEmbeddedText,
+        textSource: hasEmbeddedText ? "embedded" : "none",
+      },
+      normalizedText
+    );
 
     pages.push({
-      pageNumber: i + 1,
-      rawText,
-      normalizedText,
-      charCount: rawText.length,
-      hasEmbeddedText,
-      textSource: hasEmbeddedText ? "embedded" : "none",
-      classification,
+      ...classified,
       classificationConfidence: hasEmbeddedText
-        ? confidence
+        ? classified.classificationConfidence
         : pageTextConfidence(rawText.length, false),
     });
   }

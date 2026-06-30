@@ -222,7 +222,7 @@ describe("page number mapping", () => {
     expect(allocationPage?.page).toBeNull();
     expect(allocationPage?.locationConfidence).toBe("template");
     expect(allocationPage?.expectedPageLabel).toBe("Expected Page 9");
-    expect(allocationPage?.pageLabel).toBe("Not Found");
+    expect(allocationPage?.pageLabel).toContain("Unable to determine");
   });
 });
 
