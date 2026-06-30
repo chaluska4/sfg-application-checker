@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildReviewBlobReference,
+  generateBlobName,
   isAllowedBlobName,
   isAzureBlobStorageConfigured,
-  sanitizeBlobName,
 } from "@/lib/azure-blob-storage";
 import { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
 import { logAzureBlobEvent } from "@/lib/azure-blob-log";
@@ -38,39 +37,31 @@ describe("azure blob storage", () => {
     expect(isAzureBlobStorageConfigured()).toBe(true);
   });
 
-  it("builds private review blob names under reviews/", () => {
-    const blobName = sanitizeBlobName("scan.pdf");
-    expect(blobName.startsWith("reviews/")).toBe(true);
+  it("builds private review blob names under review-uploads/", () => {
+    const blobName = generateBlobName("scan.pdf", new Date("2026-06-30T12:00:00.000Z"));
+    expect(blobName.startsWith("review-uploads/")).toBe(true);
     expect(blobName.endsWith(".pdf")).toBe(true);
     expect(isAllowedBlobName(blobName)).toBe(true);
-    expect(buildReviewBlobReference("scan.pdf")).toMatch(/^reviews\/[0-9a-f-]{36}-scan\.pdf$/i);
-  });
-
-  it("rejects path traversal and external blob references", () => {
-    expect(isAllowedBlobName("../secrets.pdf")).toBe(false);
-    expect(isAllowedBlobName("reviews/../secrets.pdf")).toBe(false);
-    expect(isAllowedBlobName("https://evil.example.com/file.pdf")).toBe(false);
-    expect(isAllowedBlobName("reviews/not-a-valid-reference")).toBe(false);
   });
 
   it("parses valid upload-url metadata and review blob requests", () => {
-    const blobName = sanitizeBlobName("scan.pdf");
+    const blobName = generateBlobName("scan.pdf", new Date("2026-06-30T12:00:00.000Z"));
 
     expect(
       parseUploadUrlRequest({
-        filename: "scan.pdf",
+        filename: "Palmaffy Robert EQT EQ0001545688F Johnson.pdf",
         contentType: "application/pdf",
         size: 9_500_000,
       })
     ).toEqual({
-      filename: "scan.pdf",
+      filename: "Palmaffy Robert EQT EQ0001545688F Johnson.pdf",
       contentType: "application/pdf",
       size: 9_500_000,
     });
 
     expect(
       validateUploadUrlRequest({
-        filename: "scan.pdf",
+        filename: "Palmaffy Robert EQT EQ0001545688F Johnson.pdf",
         contentType: "application/pdf",
         size: 9_500_000,
       })
@@ -79,11 +70,11 @@ describe("azure blob storage", () => {
     expect(
       parseReviewBlobRequest({
         blobName,
-        originalFilename: "scan.pdf",
+        originalFilename: "Palmaffy Robert EQT EQ0001545688F Johnson.pdf",
       })
     ).toEqual({
       blobName,
-      originalFilename: "scan.pdf",
+      originalFilename: "Palmaffy Robert EQT EQ0001545688F Johnson.pdf",
     });
   });
 

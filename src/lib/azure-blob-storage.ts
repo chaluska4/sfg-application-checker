@@ -20,8 +20,13 @@ import {
 
 export { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
 
-const BLOB_NAME_PATTERN = /^reviews\/[0-9a-f-]{36}-[a-zA-Z0-9._-]+\.pdf$/i;
+const BLOB_ROOT_PREFIX = "review-uploads";
 const SAS_UPLOAD_TTL_MS = 10 * 60 * 1000;
+const MAX_BLOB_SLUG_LENGTH = 120;
+
+/** Matches review-uploads/YYYY-MM-DD/{id}-{slug}.pdf with safe characters only. */
+const BLOB_NAME_PATTERN =
+  /^review-uploads\/\d{4}-\d{2}-\d{2}\/[a-z0-9][a-z0-9_-]*\.pdf$/;
 
 export class BlobStorageError extends Error {
   readonly status: number;
@@ -54,12 +59,14 @@ export function isAzureBlobStorageConfigured(): boolean {
 export const isBlobStorageConfigured = isAzureBlobStorageConfigured;
 
 export function isAllowedBlobName(blobName: string): boolean {
-  if (!blobName.startsWith("reviews/")) return false;
+  if (!blobName.startsWith(`${BLOB_ROOT_PREFIX}/`)) return false;
   if (blobName.includes("..")) return false;
   if (blobName.includes("\\")) return false;
 
   const segments = blobName.split("/");
-  if (segments.length !== 2 || segments[0] !== "reviews") return false;
+  if (segments.length !== 3) return false;
+  if (segments[0] !== BLOB_ROOT_PREFIX) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(segments[1] ?? "")) return false;
 
   return BLOB_NAME_PATTERN.test(blobName);
 }
@@ -67,14 +74,40 @@ export function isAllowedBlobName(blobName: string): boolean {
 /** @deprecated Use isAllowedBlobName */
 export const isAllowedBlobReference = isAllowedBlobName;
 
-export function sanitizeBlobName(fileName: string): string {
-  const sanitized = sanitizeFileName(fileName);
-  const baseName = sanitized.toLowerCase().endsWith(".pdf") ? sanitized : `${sanitized}.pdf`;
-  return `reviews/${randomUUID()}-${baseName}`;
+/**
+ * Converts an original PDF filename into a safe lowercase slug for blob storage.
+ * Spaces, punctuation, and mixed case are normalized — the result is never rejected
+ * solely because the advisor's original filename contained special characters.
+ */
+export function slugifyOriginalFilenameForBlob(fileName: string): string {
+  const base = sanitizeFileName(fileName).replace(/\.pdf$/i, "");
+  const slug = base
+    .toLowerCase()
+    .replace(/['’`]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, MAX_BLOB_SLUG_LENGTH);
+
+  return slug.length > 0 ? slug : "upload";
 }
 
-/** @deprecated Use sanitizeBlobName */
-export const buildReviewBlobReference = sanitizeBlobName;
+/**
+ * Generates a server-controlled Azure blob name. The original filename is used only
+ * to derive a readable slug; validation never requires the original name to be blob-safe.
+ */
+export function generateBlobName(originalFilename: string, now: Date = new Date()): string {
+  const date = now.toISOString().slice(0, 10);
+  const id = randomUUID().slice(0, 8);
+  const slug = slugifyOriginalFilenameForBlob(originalFilename);
+  return `${BLOB_ROOT_PREFIX}/${date}/${id}-${slug}.pdf`;
+}
+
+/** @deprecated Use generateBlobName */
+export const sanitizeBlobName = generateBlobName;
+
+/** @deprecated Use generateBlobName */
+export const buildReviewBlobReference = generateBlobName;
 
 function parseConnectionStringValue(connectionString: string, key: string): string {
   for (const part of connectionString.split(";")) {
