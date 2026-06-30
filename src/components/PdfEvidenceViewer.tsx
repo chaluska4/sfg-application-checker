@@ -4,14 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { ReviewResult, ValidationResultItem } from "@/lib/validation/types";
 import { getStatusDisplayLabel } from "@/lib/review-display";
+import { PDFJS_WORKER_SRC } from "@/lib/pdfjs-config";
 import {
   getActiveHighlightsForPage,
   getFindingTargetPage,
 } from "@/lib/pdf-evidence-viewer";
-import { MapPin, FileSearch } from "lucide-react";
+import { AlertTriangle, MapPin, FileSearch } from "lucide-react";
 
 const PDF_SCALE = 1.15;
 const EMPHASIS_MS = 2200;
+
+type ViewerMode = "loading" | "pdfjs" | "embed" | "failed";
 
 interface PdfEvidenceViewerProps {
   pdfFile: File;
@@ -113,38 +116,41 @@ function HighlightOverlay({
   );
 }
 
+function EmbedFallbackNotice() {
+  return (
+    <div className="mb-3 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-light/40 px-3 py-2 text-xs text-gray-700">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+      <p>
+        Canvas preview unavailable — showing browser PDF embed instead. Page jumps use{" "}
+        <code className="text-[11px]">#page=N</code>; highlight overlays are not available in
+        this mode.
+      </p>
+    </div>
+  );
+}
+
 export function PdfEvidenceViewer({ pdfFile, result }: PdfEvidenceViewerProps) {
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
   const [pageCount, setPageCount] = useState(result.pageCount);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [viewerMode, setViewerMode] = useState<ViewerMode>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [emphasizedPage, setEmphasizedPage] = useState<number | null>(null);
+  const [embedPage, setEmbedPage] = useState(1);
 
   const objectUrlRef = useRef<string | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const embedPanelRef = useRef<HTMLDivElement>(null);
   const emphasisTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const findings = result.items.filter(
-    (item) => item.status !== "not_applicable"
-  );
+  const findings = result.items.filter((item) => item.status !== "not_applicable");
 
   const setPageRef = useCallback((pageNumber: number, node: HTMLDivElement | null) => {
     if (node) pageRefs.current.set(pageNumber, node);
     else pageRefs.current.delete(pageNumber);
   }, []);
-
-  const setCanvasRef = useCallback(
-    (pageNumber: number, node: HTMLCanvasElement | null) => {
-      if (node) {
-        canvasRefs.current.set(pageNumber, node);
-        if (pdfDoc) void renderPageToCanvas(pdfDoc, pageNumber, node);
-      } else {
-        canvasRefs.current.delete(pageNumber);
-      }
-    },
-    [pdfDoc]
-  );
 
   async function renderPageToCanvas(
     doc: PDFDocumentProxy,
@@ -166,16 +172,32 @@ export function PdfEvidenceViewer({ pdfFile, result }: PdfEvidenceViewerProps) {
     }
   }
 
+  const setCanvasRef = useCallback(
+    (pageNumber: number, node: HTMLCanvasElement | null) => {
+      if (node) {
+        canvasRefs.current.set(pageNumber, node);
+        if (pdfDoc) void renderPageToCanvas(pdfDoc, pageNumber, node);
+      } else {
+        canvasRefs.current.delete(pageNumber);
+      }
+    },
+    [pdfDoc]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
     const url = URL.createObjectURL(pdfFile);
     objectUrlRef.current = url;
+    setObjectUrl(url);
+    setViewerMode("loading");
+    setLoadError(null);
+    setPdfDoc(null);
 
     (async () => {
       try {
         const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+        pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
 
         const loadingTask = pdfjs.getDocument({ url });
         const doc = await loadingTask.promise;
@@ -183,11 +205,14 @@ export function PdfEvidenceViewer({ pdfFile, result }: PdfEvidenceViewerProps) {
 
         setPdfDoc(doc);
         setPageCount(doc.numPages);
+        setViewerMode("pdfjs");
         setLoadError(null);
       } catch (error) {
-        if (!cancelled) {
-          setLoadError(error instanceof Error ? error.message : "Failed to load PDF preview.");
-        }
+        if (cancelled) return;
+        const message =
+          error instanceof Error ? error.message : "Failed to load PDF preview with pdf.js.";
+        setLoadError(message);
+        setViewerMode("embed");
       }
     })();
 
@@ -202,11 +227,11 @@ export function PdfEvidenceViewer({ pdfFile, result }: PdfEvidenceViewerProps) {
   }, [pdfFile]);
 
   useEffect(() => {
-    if (!pdfDoc) return;
+    if (!pdfDoc || viewerMode !== "pdfjs") return;
     for (const [pageNumber, canvas] of canvasRefs.current.entries()) {
       void renderPageToCanvas(pdfDoc, pageNumber, canvas);
     }
-  }, [pdfDoc, pageCount]);
+  }, [pdfDoc, pageCount, viewerMode]);
 
   const handleFindingSelect = (item: ValidationResultItem) => {
     setSelectedFindingId(item.ruleId);
@@ -217,10 +242,105 @@ export function PdfEvidenceViewer({ pdfFile, result }: PdfEvidenceViewerProps) {
     if (emphasisTimerRef.current) clearTimeout(emphasisTimerRef.current);
     emphasisTimerRef.current = setTimeout(() => setEmphasizedPage(null), EMPHASIS_MS);
 
+    if (viewerMode === "embed") {
+      setEmbedPage(page);
+      embedPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
     pageRefs.current.get(page)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const pageNumbers = Array.from({ length: pageCount }, (_, i) => i + 1);
+  const embedSrc = objectUrl ? `${objectUrl}#page=${embedPage}` : undefined;
+
+  const renderPdfPanel = () => {
+    if (viewerMode === "failed") {
+      return (
+        <div className="rounded-xl border border-red-accent/30 bg-red-light/40 p-4 text-sm text-red-accent">
+          <p className="font-semibold">PDF preview unavailable</p>
+          <p className="mt-2">
+            {loadError ??
+              "Both canvas rendering and browser embed failed. Try downloading the file and reviewing manually."}
+          </p>
+        </div>
+      );
+    }
+
+    if (viewerMode === "loading") {
+      return <p className="text-center text-sm text-gray-500">Loading PDF preview…</p>;
+    }
+
+    if (viewerMode === "embed" && embedSrc) {
+      return (
+        <div ref={embedPanelRef}>
+          <EmbedFallbackNotice />
+          <object
+            key={embedPage}
+            data={embedSrc}
+            type="application/pdf"
+            className="h-[min(70vh,900px)] w-full rounded-lg bg-white shadow-md ring-1 ring-gray-200"
+            aria-label="PDF preview"
+            onError={() => {
+              setViewerMode("failed");
+              setLoadError(
+                (prev) =>
+                  prev ??
+                  "Browser PDF embed failed after pdf.js could not initialize."
+              );
+            }}
+          >
+            <iframe
+              src={embedSrc}
+              title="PDF preview"
+              className="h-[min(70vh,900px)] w-full rounded-lg bg-white"
+              onError={() => setViewerMode("failed")}
+            />
+          </object>
+        </div>
+      );
+    }
+
+    if (viewerMode === "pdfjs" && pdfDoc) {
+      return (
+        <div className="space-y-6">
+          {pageNumbers.map((pageNumber) => {
+            const highlights = getActiveHighlightsForPage(
+              result.items,
+              selectedFindingId,
+              pageNumber
+            );
+            const emphasized = emphasizedPage === pageNumber;
+
+            return (
+              <div
+                key={pageNumber}
+                ref={(node) => setPageRef(pageNumber, node)}
+                className={`relative scroll-mt-4 transition-shadow ${
+                  emphasized ? "rounded-lg ring-4 ring-gold/60 ring-offset-2" : ""
+                }`}
+              >
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-label">
+                  Page {pageNumber}
+                </p>
+                <div className="relative inline-block max-w-full shadow-md ring-1 ring-gray-200">
+                  <canvas
+                    ref={(node) => setCanvasRef(pageNumber, node)}
+                    className="block h-auto max-w-full bg-white"
+                  />
+                  <HighlightOverlay regions={highlights} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    return (
+      <p className="text-center text-sm text-gray-500">Preparing PDF preview…</p>
+    );
+  };
 
   return (
     <div className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-gray-100">
@@ -239,45 +359,7 @@ export function PdfEvidenceViewer({ pdfFile, result }: PdfEvidenceViewerProps) {
 
       <div className="grid min-h-[480px] grid-cols-1 lg:grid-cols-2">
         <div className="max-h-[70vh] overflow-y-auto border-b border-gray-100 bg-gray-50/80 p-4 lg:border-b-0 lg:border-r">
-          {loadError ? (
-            <div className="rounded-xl border border-red-accent/20 bg-red-light/40 p-4 text-sm text-red-accent">
-              {loadError}
-            </div>
-          ) : !pdfDoc ? (
-            <p className="text-center text-sm text-gray-500">Loading PDF preview…</p>
-          ) : (
-            <div className="space-y-6">
-              {pageNumbers.map((pageNumber) => {
-                const highlights = getActiveHighlightsForPage(
-                  result.items,
-                  selectedFindingId,
-                  pageNumber
-                );
-                const emphasized = emphasizedPage === pageNumber;
-
-                return (
-                  <div
-                    key={pageNumber}
-                    ref={(node) => setPageRef(pageNumber, node)}
-                    className={`relative scroll-mt-4 transition-shadow ${
-                      emphasized ? "rounded-lg ring-4 ring-gold/60 ring-offset-2" : ""
-                    }`}
-                  >
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-label">
-                      Page {pageNumber}
-                    </p>
-                    <div className="relative inline-block max-w-full shadow-md ring-1 ring-gray-200">
-                      <canvas
-                        ref={(node) => setCanvasRef(pageNumber, node)}
-                        className="block h-auto max-w-full bg-white"
-                      />
-                      <HighlightOverlay regions={highlights} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {renderPdfPanel()}
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto p-4">
