@@ -1,6 +1,6 @@
 import { sanitizeOcrError } from "@/lib/document-intelligence/ocr/ocr-dev-log";
 
-export type AzureBlobLogAction = "upload" | "download" | "delete" | "review";
+export type AzureBlobLogAction = "upload" | "download" | "delete" | "review" | "sas-create";
 
 export interface AzureBlobLogEvent {
   requestId: string;

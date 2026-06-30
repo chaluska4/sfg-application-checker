@@ -1,5 +1,15 @@
 import { randomUUID } from "crypto";
-import { BlobServiceClient } from "@azure/storage-blob";
+import {
+  BlobSASPermissions,
+  BlobServiceClient,
+  generateBlobSASQueryParameters,
+  StorageSharedKeyCredential,
+} from "@azure/storage-blob";
+import {
+  AZURE_BLOB_DOWNLOAD_ERROR,
+  AZURE_BLOB_STORAGE_SETUP_ERROR,
+  AZURE_SAS_CREATION_ERROR,
+} from "@/lib/azure-blob-messages";
 import { logAzureBlobEvent } from "@/lib/azure-blob-log";
 import {
   isPdfWithinSizeLimit,
@@ -8,10 +18,10 @@ import {
   sanitizeFileName,
 } from "@/lib/upload-security";
 
-import { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
+export { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
 
-export { AZURE_BLOB_STORAGE_SETUP_ERROR };
-const BLOB_REFERENCE_PATTERN = /^reviews\/[0-9a-f-]{36}-[a-zA-Z0-9._-]+\.pdf$/i;
+const BLOB_NAME_PATTERN = /^reviews\/[0-9a-f-]{36}-[a-zA-Z0-9._-]+\.pdf$/i;
+const SAS_UPLOAD_TTL_MS = 10 * 60 * 1000;
 
 export class BlobStorageError extends Error {
   readonly status: number;
@@ -43,21 +53,52 @@ export function isAzureBlobStorageConfigured(): boolean {
 /** @deprecated Use isAzureBlobStorageConfigured */
 export const isBlobStorageConfigured = isAzureBlobStorageConfigured;
 
-export function isAllowedBlobReference(blobReference: string): boolean {
-  if (!blobReference.startsWith("reviews/")) return false;
-  if (blobReference.includes("..")) return false;
-  if (blobReference.includes("\\")) return false;
-  if (blobReference.includes("/")) {
-    const segments = blobReference.split("/");
-    if (segments.length !== 2 || segments[0] !== "reviews") return false;
-  }
-  return BLOB_REFERENCE_PATTERN.test(blobReference);
+export function isAllowedBlobName(blobName: string): boolean {
+  if (!blobName.startsWith("reviews/")) return false;
+  if (blobName.includes("..")) return false;
+  if (blobName.includes("\\")) return false;
+
+  const segments = blobName.split("/");
+  if (segments.length !== 2 || segments[0] !== "reviews") return false;
+
+  return BLOB_NAME_PATTERN.test(blobName);
 }
 
-export function buildReviewBlobReference(fileName: string): string {
+/** @deprecated Use isAllowedBlobName */
+export const isAllowedBlobReference = isAllowedBlobName;
+
+export function sanitizeBlobName(fileName: string): string {
   const sanitized = sanitizeFileName(fileName);
   const baseName = sanitized.toLowerCase().endsWith(".pdf") ? sanitized : `${sanitized}.pdf`;
   return `reviews/${randomUUID()}-${baseName}`;
+}
+
+/** @deprecated Use sanitizeBlobName */
+export const buildReviewBlobReference = sanitizeBlobName;
+
+function parseConnectionStringValue(connectionString: string, key: string): string {
+  for (const part of connectionString.split(";")) {
+    if (!part) continue;
+    const separatorIndex = part.indexOf("=");
+    if (separatorIndex === -1) continue;
+    const partKey = part.slice(0, separatorIndex);
+    if (partKey === key) {
+      return part.slice(separatorIndex + 1);
+    }
+  }
+  return "";
+}
+
+function getSharedKeyCredential(): StorageSharedKeyCredential {
+  const { connectionString } = readAzureStorageEnv();
+  const accountName = parseConnectionStringValue(connectionString, "AccountName");
+  const accountKey = parseConnectionStringValue(connectionString, "AccountKey");
+
+  if (!accountName || !accountKey) {
+    throw new BlobStorageError(AZURE_BLOB_STORAGE_SETUP_ERROR, 503);
+  }
+
+  return new StorageSharedKeyCredential(accountName, accountKey);
 }
 
 function getContainerClient() {
@@ -70,57 +111,65 @@ function getContainerClient() {
   return serviceClient.getContainerClient(env.containerName);
 }
 
-export async function uploadPdfToAzureBlob(
-  buffer: ArrayBuffer,
-  blobReference: string,
+export function createBlobUploadSasUrl(
+  blobName: string,
+  contentType: string,
   requestId: string
-): Promise<void> {
-  if (!isAllowedBlobReference(blobReference)) {
-    throw new BlobStorageError("Invalid blob reference.", 400);
-  }
-
-  if (!isPdfWithinSizeLimit(buffer.byteLength)) {
-    throw new BlobStorageError(MAX_PDF_SIZE_ERROR, 413);
+): string {
+  if (!isAllowedBlobName(blobName)) {
+    throw new BlobStorageError("Invalid blob name.", 400);
   }
 
   const startedAt = Date.now();
 
   try {
+    const env = readAzureStorageEnv();
+    const credential = getSharedKeyCredential();
     const containerClient = getContainerClient();
-    const blockBlobClient = containerClient.getBlockBlobClient(blobReference);
-    const body = Buffer.from(buffer);
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    const expiresOn = new Date(Date.now() + SAS_UPLOAD_TTL_MS);
 
-    await blockBlobClient.upload(body, body.length, {
-      blobHTTPHeaders: {
-        blobContentType: "application/pdf",
+    const sasToken = generateBlobSASQueryParameters(
+      {
+        containerName: env.containerName,
+        blobName,
+        permissions: BlobSASPermissions.parse("cw"),
+        expiresOn,
+        contentType,
       },
-    });
+      credential
+    ).toString();
 
     logAzureBlobEvent({
       requestId,
-      action: "upload",
+      action: "sas-create",
       success: true,
-      fileSizeBytes: buffer.byteLength,
       durationMs: Date.now() - startedAt,
     });
+
+    return `${blockBlobClient.url}?${sasToken}`;
   } catch (error) {
     logAzureBlobEvent({
       requestId,
-      action: "upload",
+      action: "sas-create",
       success: false,
-      fileSizeBytes: buffer.byteLength,
       durationMs: Date.now() - startedAt,
       error,
     });
-    throw new BlobStorageError("Could not store the uploaded PDF.", 502);
+
+    if (error instanceof BlobStorageError) {
+      throw error;
+    }
+
+    throw new BlobStorageError(AZURE_SAS_CREATION_ERROR, 502);
   }
 }
 
-export async function downloadPdfFromAzureBlob(
-  blobReference: string,
+export async function downloadBlobToBuffer(
+  blobName: string,
   requestId: string
 ): Promise<ArrayBuffer> {
-  if (!isAllowedBlobReference(blobReference)) {
+  if (!isAllowedBlobName(blobName)) {
     throw new BlobStorageError("Invalid blob reference.", 400);
   }
 
@@ -128,7 +177,7 @@ export async function downloadPdfFromAzureBlob(
 
   try {
     const containerClient = getContainerClient();
-    const blockBlobClient = containerClient.getBlockBlobClient(blobReference);
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     const properties = await blockBlobClient.getProperties();
 
     if (typeof properties.contentLength === "number" && properties.contentLength > MAX_PDF_SIZE) {
@@ -146,7 +195,7 @@ export async function downloadPdfFromAzureBlob(
 
     const downloadResponse = await blockBlobClient.download(0);
     if (!downloadResponse.readableStreamBody) {
-      throw new BlobStorageError("Could not retrieve the uploaded PDF.", 502);
+      throw new BlobStorageError(AZURE_BLOB_DOWNLOAD_ERROR, 502);
     }
 
     const chunks: Buffer[] = [];
@@ -187,15 +236,15 @@ export async function downloadPdfFromAzureBlob(
       durationMs: Date.now() - startedAt,
       error,
     });
-    throw new BlobStorageError("Could not retrieve the uploaded PDF.", 502);
+    throw new BlobStorageError(AZURE_BLOB_DOWNLOAD_ERROR, 502);
   }
 }
 
-export async function deleteAzureReviewBlob(
-  blobReference: string,
-  requestId: string
-): Promise<void> {
-  if (!isAzureBlobStorageConfigured() || !isAllowedBlobReference(blobReference)) {
+/** @deprecated Use downloadBlobToBuffer */
+export const downloadPdfFromAzureBlob = downloadBlobToBuffer;
+
+export async function deleteBlobIfExists(blobName: string, requestId: string): Promise<void> {
+  if (!isAzureBlobStorageConfigured() || !isAllowedBlobName(blobName)) {
     return;
   }
 
@@ -203,7 +252,7 @@ export async function deleteAzureReviewBlob(
 
   try {
     const containerClient = getContainerClient();
-    await containerClient.getBlockBlobClient(blobReference).deleteIfExists();
+    await containerClient.getBlockBlobClient(blobName).deleteIfExists();
 
     logAzureBlobEvent({
       requestId,
@@ -221,3 +270,6 @@ export async function deleteAzureReviewBlob(
     });
   }
 }
+
+/** @deprecated Use deleteBlobIfExists */
+export const deleteAzureReviewBlob = deleteBlobIfExists;

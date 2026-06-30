@@ -2,19 +2,19 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   AZURE_BLOB_STORAGE_SETUP_ERROR,
-  deleteAzureReviewBlob,
-  downloadPdfFromAzureBlob,
+  deleteBlobIfExists,
+  downloadBlobToBuffer,
   isAzureBlobStorageConfigured,
 } from "@/lib/azure-blob-storage";
 import { logAzureBlobEvent } from "@/lib/azure-blob-log";
 import { requireAuthenticatedReviewAccess } from "@/lib/review-auth";
 import { processReviewPdf } from "@/lib/review-pdf-processor";
-import { parseReviewBlobReference } from "@/lib/review-request";
+import { parseReviewBlobRequest } from "@/lib/review-request";
 import { createReviewErrorResponse } from "@/lib/review-route-errors";
 import {
   DIRECT_UPLOAD_MAX_BYTES,
+  isPdfBuffer,
   isPdfFile,
-  isPdfFileName,
   isPdfWithinSizeLimit,
   MAX_PDF_SIZE_ERROR,
 } from "@/lib/upload-security";
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
 async function handleBlobReviewRequest(request: NextRequest): Promise<NextResponse> {
   const requestId = randomUUID();
-  let blobReference: string | null = null;
+  let blobName: string | null = null;
   const startedAt = Date.now();
 
   try {
@@ -48,8 +48,8 @@ async function handleBlobReviewRequest(request: NextRequest): Promise<NextRespon
       return createReviewErrorResponse(error, { stage: "parse-json", requestId });
     }
 
-    const reference = parseReviewBlobReference(body);
-    if (!reference) {
+    const reviewRequest = parseReviewBlobRequest(body);
+    if (!reviewRequest) {
       return NextResponse.json({ error: "Invalid review request." }, { status: 400 });
     }
 
@@ -57,23 +57,20 @@ async function handleBlobReviewRequest(request: NextRequest): Promise<NextRespon
       return NextResponse.json({ error: AZURE_BLOB_STORAGE_SETUP_ERROR }, { status: 503 });
     }
 
-    if (!isPdfWithinSizeLimit(reference.fileSize)) {
-      return NextResponse.json({ error: MAX_PDF_SIZE_ERROR }, { status: 413 });
+    blobName = reviewRequest.blobName;
+    const arrayBuffer = await downloadBlobToBuffer(blobName, requestId);
+
+    if (!isPdfBuffer(arrayBuffer)) {
+      return NextResponse.json({ error: "File must be a valid PDF." }, { status: 400 });
     }
 
-    if (!isPdfFileName(reference.fileName)) {
-      return NextResponse.json({ error: "File must be a PDF." }, { status: 400 });
-    }
-
-    blobReference = reference.blobReference;
-    const arrayBuffer = await downloadPdfFromAzureBlob(blobReference, requestId);
-    const result = await processReviewPdf(arrayBuffer, reference.fileName);
+    const result = await processReviewPdf(arrayBuffer, reviewRequest.originalFilename);
 
     logAzureBlobEvent({
       requestId,
       action: "review",
       success: true,
-      fileSizeBytes: reference.fileSize,
+      fileSizeBytes: arrayBuffer.byteLength,
       pageCount: result.pageCount,
       durationMs: Date.now() - startedAt,
     });
@@ -89,8 +86,8 @@ async function handleBlobReviewRequest(request: NextRequest): Promise<NextRespon
     });
     return createReviewErrorResponse(error, { stage: "blob-review", requestId });
   } finally {
-    if (blobReference) {
-      await deleteAzureReviewBlob(blobReference, requestId);
+    if (blobName) {
+      await deleteBlobIfExists(blobName, requestId);
     }
   }
 }

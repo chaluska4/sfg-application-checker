@@ -1,11 +1,20 @@
-export interface ReviewBlobReference {
-  blobReference: string;
-  fileName: string;
-  fileSize: number;
+export interface ReviewBlobReviewRequest {
+  blobName: string;
+  originalFilename: string;
 }
 
-export interface UploadPdfResponse {
-  blobReference: string;
-  fileName: string;
-  fileSize: number;
+export interface UploadUrlRequest {
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
+export interface UploadUrlResponse {
+  uploadUrl: string;
+  blobName: string;
+}
+
+export interface UploadConfigResponse {
+  blobStorageConfigured: boolean;
+  directUploadMaxBytes: number;
 }

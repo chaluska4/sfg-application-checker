@@ -11,6 +11,7 @@ const getPropertiesMock = vi.fn(async () => ({
   contentType: "application/pdf",
 }));
 const deleteIfExistsMock = vi.fn(async () => undefined);
+const generateBlobSASQueryParametersMock = vi.fn(() => ({ toString: () => "sig=test-sas" }));
 
 vi.mock("@azure/storage-blob", () => ({
   BlobServiceClient: {
@@ -21,10 +22,19 @@ vi.mock("@azure/storage-blob", () => ({
           download: downloadMock,
           getProperties: getPropertiesMock,
           deleteIfExists: deleteIfExistsMock,
+          url: "https://account.blob.core.windows.net/review-uploads/reviews/file.pdf",
         })),
       })),
     })),
   },
+  BlobSASPermissions: {
+    parse: vi.fn(() => "cw"),
+  },
+  generateBlobSASQueryParameters: (...args: unknown[]) =>
+    generateBlobSASQueryParametersMock(...args),
+  StorageSharedKeyCredential: vi.fn(function StorageSharedKeyCredential() {
+    return { accountName: "account" };
+  }),
 }));
 
 describe("azure blob storage SDK wiring", () => {
@@ -32,7 +42,8 @@ describe("azure blob storage SDK wiring", () => {
   const originalContainerName = process.env.AZURE_STORAGE_CONTAINER_NAME;
 
   beforeEach(() => {
-    process.env["AZURE_STORAGE_CONNECTION_STRING"] = "UseDevelopmentStorage=true";
+    process.env["AZURE_STORAGE_CONNECTION_STRING"] =
+      "DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key;EndpointSuffix=core.windows.net";
     process.env["AZURE_STORAGE_CONTAINER_NAME"] = "review-uploads";
   });
 
@@ -51,24 +62,25 @@ describe("azure blob storage SDK wiring", () => {
     }
   });
 
-  it("uploads, downloads, and deletes review blobs", async () => {
+  it("creates SAS upload URLs, downloads blobs, and deletes them", async () => {
     const {
-      buildReviewBlobReference,
-      uploadPdfToAzureBlob,
-      downloadPdfFromAzureBlob,
-      deleteAzureReviewBlob,
+      sanitizeBlobName,
+      createBlobUploadSasUrl,
+      downloadBlobToBuffer,
+      deleteBlobIfExists,
     } = await import("@/lib/azure-blob-storage");
 
-    const blobReference = buildReviewBlobReference("scan.pdf");
-    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
+    const blobName = sanitizeBlobName("scan.pdf");
+    const uploadUrl = createBlobUploadSasUrl(blobName, "application/pdf", "req-upload");
+    const downloaded = await downloadBlobToBuffer(blobName, "req-download");
+    await deleteBlobIfExists(blobName, "req-delete");
 
-    await uploadPdfToAzureBlob(pdfBytes.buffer, blobReference, "req-upload");
-    const downloaded = await downloadPdfFromAzureBlob(blobReference, "req-download");
-    await deleteAzureReviewBlob(blobReference, "req-delete");
-
-    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect(uploadUrl).toContain("sig=test-sas");
+    expect(generateBlobSASQueryParametersMock).toHaveBeenCalledTimes(1);
     expect(downloadMock).toHaveBeenCalledTimes(1);
     expect(deleteIfExistsMock).toHaveBeenCalledTimes(1);
-    expect(new Uint8Array(downloaded)).toEqual(pdfBytes);
+    expect(new Uint8Array(downloaded)).toEqual(
+      new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])
+    );
   });
 });
