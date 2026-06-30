@@ -1,5 +1,5 @@
-import type { PageAnalysis } from "../types";
-import { classifyPage } from "../classify-pages";
+import type { PageAnalysis, ValidationRule } from "../types";
+import { enrichPageWithClassification } from "../classify-pages";
 import { detectCheckboxes } from "../detect-checkboxes";
 import { detectSignatures } from "../detect-signatures";
 import { detectDates } from "../detect-dates";
@@ -19,17 +19,17 @@ function buildPacket(fullText: string, pages?: PageAnalysis[]) {
     pages ??
     [fullText].map((text, i) => {
       const normalized = text.toLowerCase();
-      const { classification, confidence } = classifyPage(normalized, i + 1);
-      return {
-        pageNumber: i + 1,
-        rawText: text,
-        normalizedText: normalized,
-        charCount: text.length,
-        hasEmbeddedText: text.trim().length >= 20,
-        textSource: text.trim().length >= 20 ? ("embedded" as const) : ("none" as const),
-        classification,
-        classificationConfidence: confidence,
-      } satisfies PageAnalysis;
+      return enrichPageWithClassification(
+        {
+          pageNumber: i + 1,
+          rawText: text,
+          normalizedText: normalized,
+          charCount: text.length,
+          hasEmbeddedText: text.trim().length >= 20,
+          textSource: text.trim().length >= 20 ? ("embedded" as const) : ("none" as const),
+        },
+        normalized
+      );
     });
 
   const checkboxes = detectCheckboxes(pageList);
@@ -54,8 +54,12 @@ function buildPacket(fullText: string, pages?: PageAnalysis[]) {
   };
 }
 
-export function validatePacketLogic(fullText: string, pages?: PageAnalysis[]) {
-  return runValidationOnPacket(buildPacket(fullText, pages), equitrustMarketEarlyNjRules);
+export function validatePacketLogic(
+  fullText: string,
+  pages?: PageAnalysis[],
+  rules: ValidationRule[] = equitrustMarketEarlyNjRules
+) {
+  return runValidationOnPacket(buildPacket(fullText, pages), rules);
 }
 
 export async function validatePacketWithMockOcr(

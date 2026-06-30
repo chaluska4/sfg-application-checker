@@ -3,6 +3,7 @@ import type {
   DocumentPacket,
   FieldStatus,
   FindingDisposition,
+  HighlightRegion,
   PageAnalysis,
   ValidationRule,
 } from "./types";
@@ -19,6 +20,15 @@ import { isCheckboxChecked } from "./detect-checkboxes";
 import { isSignaturePresent } from "./detect-signatures";
 import { hasSignatureDateNearLabels } from "./detect-dates";
 import { minConfidence } from "./confidence";
+import { resolveScopedTargetForRule, getConfigurableRuleById } from "./rule-config";
+import {
+  getScopedBoundingBox,
+  runScopedSearch,
+  scopedDocumentLocated,
+  scopedSectionLocated,
+  type ScopedSearchContext,
+} from "./scoped-validation";
+import { getNonIgnoredPages } from "./classify-pages";
 
 const PII_SNIPPET_PATTERNS = [
   /\b\d{3}-\d{2}-\d{4}\b/g,
@@ -35,6 +45,9 @@ export interface FieldEvidenceResult {
   evidenceReason?: string;
   detectedFormName?: string;
   pageEvidence: PageEvidence;
+  scopedContext?: ScopedSearchContext;
+  hasValueEvidence?: boolean;
+  highlightRegions?: HighlightRegion[];
 }
 
 export function maskEvidenceSnippet(text: string): string {
@@ -54,6 +67,16 @@ export function packetHasUsableText(packet: DocumentPacket): boolean {
 }
 
 export function findSectionPage(rule: ValidationRule, packet: DocumentPacket): number | null {
+  const scopedTarget = resolveScopedTargetForRule(rule);
+  if (scopedTarget) {
+    const searchPages =
+      scopedTarget.includeAdministrativePages || rule.includeAdministrativePages
+        ? packet.pages
+        : getNonIgnoredPages(packet.pages);
+    const scoped = runScopedSearch(searchPages, scopedTarget);
+    if (scoped.pageNumber) return scoped.pageNumber;
+  }
+
   if (rule.page) return rule.page;
 
   const labelPage = findPageMatchingLabelPatterns(rule, packet);
@@ -65,6 +88,54 @@ export function findSectionPage(rule: ValidationRule, packet: DocumentPacket): n
   }
 
   return null;
+}
+
+function buildHighlightRegions(context?: ScopedSearchContext): HighlightRegion[] | undefined {
+  if (!context) return undefined;
+  const regions: HighlightRegion[] = [];
+  for (const stage of context.stages) {
+    if (!stage.boundingBox || !stage.pageNumber) continue;
+    regions.push({
+      pageNumber: stage.pageNumber,
+      boundingBox: stage.boundingBox,
+      label: stage.stage,
+      snippet: stage.snippet,
+    });
+  }
+  return regions.length ? regions : undefined;
+}
+
+function appendScopedReason(base: string, context?: ScopedSearchContext): string {
+  if (!context?.stages.length) return base;
+  const trace = context.stages.map((stage) => stage.detail).join(" → ");
+  return `${base} Scoped trace: ${trace}`;
+}
+
+function pagesForRuleSearch(rule: ValidationRule, packet: DocumentPacket): PageAnalysis[] {
+  const configured = getConfigurableRuleById(rule.id);
+  if (rule.includeAdministrativePages || configured?.includeAdministrativePages) {
+    return packet.pages.filter(
+      (page) => page.isIgnored && page.documentType === configured?.requiredDocument
+    );
+  }
+  return getNonIgnoredPages(packet.pages);
+}
+
+function ruleAllowsGlobalFallback(rule: ValidationRule): boolean {
+  return rule.allowGlobalFallback === true || getConfigurableRuleById(rule.id)?.allowGlobalFallback === true;
+}
+
+function runRuleScopedContext(
+  rule: ValidationRule,
+  packet: DocumentPacket
+): ScopedSearchContext | undefined {
+  const target = resolveScopedTargetForRule(rule);
+  if (!target) return undefined;
+  const searchPages =
+    target.includeAdministrativePages || rule.includeAdministrativePages
+      ? packet.pages
+      : getNonIgnoredPages(packet.pages);
+  return runScopedSearch(searchPages, target);
 }
 
 export function searchOcrSnippetNearLabel(
@@ -167,40 +238,74 @@ export function evaluateFieldWithEvidence(
   rule: ValidationRule,
   packet: DocumentPacket
 ): FieldEvidenceResult {
-  const sectionPageNumber = findSectionPage(rule, packet);
+  const scopedContext = runRuleScopedContext(rule, packet);
+  const sectionPageNumber = scopedContext?.pageNumber ?? findSectionPage(rule, packet);
   const sectionPage = sectionPageNumber
     ? packet.pages.find((p) => p.pageNumber === sectionPageNumber)
     : undefined;
+  const highlightRegions = buildHighlightRegions(scopedContext);
 
   if (!packetHasUsableText(packet)) {
-    return unableToDetermine(
-      rule,
-      packet,
-      "No readable text or OCR output — cannot verify this requirement automatically."
-    );
+    return {
+      ...unableToDetermine(
+        rule,
+        packet,
+        "No readable text or OCR output — cannot verify this requirement automatically."
+      ),
+      scopedContext,
+      highlightRegions,
+    };
   }
 
   switch (rule.kind) {
     case "page_type": {
       const required = rule.pageTypes ?? [];
-      const match = required
-        .map((type) => packet.pages.find((p) => p.classification === type))
-        .find(Boolean);
+      const searchPages = pagesForRuleSearch(rule, packet);
+      const scopedPage = scopedContext?.pageNumber
+        ? packet.pages.find((p) => p.pageNumber === scopedContext.pageNumber)
+        : undefined;
+      const match =
+        (scopedPage && scopedDocumentLocated(scopedContext) ? scopedPage : undefined) ??
+        required
+          .map((type) => searchPages.find((p) => p.classification === type))
+          .find(Boolean);
       if (match) {
         return {
           status: "present",
           confidence: match.classificationConfidence,
           disposition: "found_complete",
           evidenceSnippet: maskEvidenceSnippet(match.rawText.slice(0, 120)),
-          evidenceReason: `Detected ${getPageClassificationLabel(match.classification)} on page ${match.pageNumber}.`,
+          evidenceReason: appendScopedReason(
+            `Detected ${getPageClassificationLabel(match.classification)} on page ${match.pageNumber}.`,
+            scopedContext
+          ),
           detectedFormName: getPageClassificationLabel(match.classification),
           pageEvidence: buildBaseEvidence(rule, packet, match.pageNumber),
+          scopedContext,
+          hasValueEvidence: true,
+          highlightRegions,
         };
       }
 
-      const searchedWithOcr = packet.pages.some((p) => pageHasUsableText(p));
+      const searchedWithOcr = searchPages.some((p) => pageHasUsableText(p));
       if (!searchedWithOcr) {
-        return unableToDetermine(rule, packet, "OCR could not identify this form type in the packet.");
+        return {
+          ...unableToDetermine(rule, packet, "OCR could not identify this form type in the packet."),
+          scopedContext,
+          highlightRegions,
+        };
+      }
+
+      if (!scopedDocumentLocated(scopedContext) && !ruleAllowsGlobalFallback(rule)) {
+        return {
+          ...unableToDetermine(
+            rule,
+            packet,
+            `Required document not located in scoped search: ${rule.label}.`
+          ),
+          scopedContext,
+          highlightRegions,
+        };
       }
 
       return {
@@ -208,8 +313,13 @@ export function evaluateFieldWithEvidence(
         confidence: "medium",
         disposition: "not_found",
         message: `Expected form section not found: ${rule.label}.`,
-        evidenceReason: "Searched OCR text across all pages; no matching form header detected.",
+        evidenceReason: appendScopedReason(
+          "Scoped document search did not locate the required form type.",
+          scopedContext
+        ),
         pageEvidence: buildBaseEvidence(rule, packet, null),
+        scopedContext,
+        highlightRegions,
       };
     }
 
@@ -224,9 +334,19 @@ export function evaluateFieldWithEvidence(
           status: "present",
           confidence: sig.confidence,
           disposition: "found_complete",
-          evidenceReason: "Signature indicator found in OCR/text near expected signature line.",
+          evidenceReason: appendScopedReason(
+            "Signature indicator found in OCR/text near expected signature line.",
+            scopedContext
+          ),
           detectedFormName: sectionPage ? getPageClassificationLabel(sectionPage.classification) : undefined,
-          pageEvidence: { ...sigEvidence, signaturePage: sigPage ?? undefined },
+          pageEvidence: {
+            ...sigEvidence,
+            signaturePage: sigPage ?? undefined,
+            boundingBox: sigEvidence.boundingBox ?? getScopedBoundingBox(scopedContext),
+          },
+          scopedContext,
+          highlightRegions,
+          hasValueEvidence: true,
         };
       }
 
@@ -251,25 +371,48 @@ export function evaluateFieldWithEvidence(
           confidence: "medium",
           disposition: "not_found",
           message: "Signature section found but no signature detected.",
-          evidenceReason: "OCR located the signature block; no e-sign or signature marker found.",
+          evidenceReason: appendScopedReason(
+            "OCR located the signature block; no e-sign or signature marker found.",
+            scopedContext
+          ),
           detectedFormName: getPageClassificationLabel(signaturePageMeta.classification),
           pageEvidence: { ...sigEvidence, signaturePage: signaturePageMeta.pageNumber },
+          scopedContext,
+          highlightRegions,
         };
       }
 
-      return unableToDetermine(
-        rule,
-        packet,
-        "Signature area could not be confidently located in OCR output.",
-        sigPage
-      );
+      if (!scopedDocumentLocated(scopedContext) && !ruleAllowsGlobalFallback(rule)) {
+        return {
+          ...unableToDetermine(
+            rule,
+            packet,
+            "Signature area could not be located within scoped application document.",
+            sigPage
+          ),
+          scopedContext,
+          highlightRegions,
+        };
+      }
+
+      return {
+        ...unableToDetermine(
+          rule,
+          packet,
+          "Signature area could not be confidently located in OCR output.",
+          sigPage
+        ),
+        scopedContext,
+        highlightRegions,
+      };
     }
 
     case "date_near_label": {
       const datePage = sectionPageNumber;
+      const scopedPages = getNonIgnoredPages(packet.pages);
       const pageText = datePage
-        ? (packet.pages.find((p) => p.pageNumber === datePage)?.rawText ?? "")
-        : packet.pages
+        ? (scopedPages.find((p) => p.pageNumber === datePage)?.rawText ?? "")
+        : scopedPages
             .filter((p) =>
               p.classification === "application_page_3_signatures" ||
               p.classification === "acknowledgments_signatures" ||
@@ -289,9 +432,15 @@ export function evaluateFieldWithEvidence(
           confidence,
           disposition: "found_complete",
           evidenceSnippet: matchedDate,
-          evidenceReason: "Signature date found near expected label (DOB excluded).",
+          evidenceReason: appendScopedReason(
+            "Signature date found near expected label (DOB excluded).",
+            scopedContext
+          ),
           detectedFormName: sectionPage ? getPageClassificationLabel(sectionPage.classification) : undefined,
           pageEvidence: { ...dateEvidence, datePage: datePage ?? undefined },
+          scopedContext,
+          highlightRegions,
+          hasValueEvidence: true,
         };
       }
 
@@ -360,9 +509,10 @@ export function evaluateFieldWithEvidence(
     }
 
     case "allocation_100": {
+      const activePages = getNonIgnoredPages(packet.pages);
       const allocationPage =
-        packet.pages.find((p) => pageHasAllocationTable(p)) ??
-        packet.pages.find((p) => p.classification === "initial_premium_allocation");
+        activePages.find((p) => pageHasAllocationTable(p)) ??
+        activePages.find((p) => p.classification === "initial_premium_allocation");
       const total = packet.flags.allocationTotal;
       const evidence = buildBaseEvidence(
         rule,
@@ -374,21 +524,55 @@ export function evaluateFieldWithEvidence(
           status: "present",
           confidence: "high",
           disposition: "found_complete",
-          evidenceReason: "Allocation percentages sum to 100%.",
+          evidenceReason: appendScopedReason(
+            "Allocation percentages sum to 100% within INITIAL PREMIUM ALLOCATION - REQUIRED table.",
+            scopedContext
+          ),
           detectedFormName: sectionPage ? getPageClassificationLabel(sectionPage.classification) : undefined,
           pageEvidence: evidence,
+          scopedContext,
+          highlightRegions,
+          hasValueEvidence: true,
         };
       }
       if (total === undefined) {
-        return unableToDetermine(rule, packet, "Allocation table not readable from OCR/text.", sectionPageNumber);
+        return {
+          ...unableToDetermine(
+            rule,
+            packet,
+            "Allocation table not readable from OCR/text.",
+            sectionPageNumber
+          ),
+          scopedContext,
+          highlightRegions,
+        };
       }
+
+      if (!scopedDocumentLocated(scopedContext)) {
+        return {
+          ...unableToDetermine(
+            rule,
+            packet,
+            "INITIAL PREMIUM ALLOCATION - REQUIRED table not located in scoped search.",
+            sectionPageNumber
+          ),
+          scopedContext,
+          highlightRegions,
+        };
+      }
+
       return {
         status: "missing",
         confidence: "medium",
         disposition: "not_found",
         message: `Allocation total is ${total}%, expected 100%.`,
-        evidenceReason: "OCR/text parsed allocation values that do not total 100%.",
+        evidenceReason: appendScopedReason(
+          "OCR/text parsed allocation values that do not total 100%.",
+          scopedContext
+        ),
         pageEvidence: evidence,
+        scopedContext,
+        highlightRegions,
       };
     }
 
@@ -405,9 +589,15 @@ export function evaluateFieldWithEvidence(
           disposition: "found_complete",
           message: extracted.maskedPreview ? `Detected (${extracted.maskedPreview})` : undefined,
           evidenceSnippet: extracted.maskedPreview,
-          evidenceReason: "Required value detected in OCR/text extraction.",
+          evidenceReason: appendScopedReason(
+            "Required value detected in OCR/text extraction.",
+            scopedContext
+          ),
           detectedFormName: sectionPage ? getPageClassificationLabel(sectionPage.classification) : undefined,
           pageEvidence: { ...valueEvidence, valuePage: extracted.page ?? undefined },
+          scopedContext,
+          highlightRegions,
+          hasValueEvidence: true,
         };
       }
 
@@ -422,9 +612,15 @@ export function evaluateFieldWithEvidence(
           confidence: snippetResult.confidence,
           disposition: "found_complete",
           evidenceSnippet: snippetResult.snippet,
-          evidenceReason: "Value pattern matched in OCR near section label.",
+          evidenceReason: appendScopedReason(
+            "Value pattern matched in OCR near section label.",
+            scopedContext
+          ),
           detectedFormName: getPageClassificationLabel(targetPage!.classification),
           pageEvidence: { ...valueEvidence, valuePage: targetPage!.pageNumber },
+          scopedContext,
+          highlightRegions,
+          hasValueEvidence: true,
         };
       }
 
@@ -435,24 +631,63 @@ export function evaluateFieldWithEvidence(
           disposition: "found_incomplete",
           message: "Section label found but required value not extracted.",
           evidenceSnippet: snippetResult?.snippet,
-          evidenceReason: "OCR located the field label; value missing or illegible.",
+          evidenceReason: appendScopedReason(
+            "OCR located the field label; value missing or illegible.",
+            scopedContext
+          ),
           detectedFormName: getPageClassificationLabel(targetPage.classification),
           pageEvidence: { ...valueEvidence, valuePage: targetPage.pageNumber },
+          scopedContext,
+          highlightRegions,
         };
       }
 
       if (targetPage && pageHasUsableText(targetPage)) {
-        return unableToDetermine(
-          rule,
-          packet,
-          "Section page located but field label not confidently matched.",
-          targetPage.pageNumber
-        );
+        return {
+          ...unableToDetermine(
+            rule,
+            packet,
+            "Section page located but field label not confidently matched.",
+            targetPage.pageNumber
+          ),
+          scopedContext,
+          highlightRegions,
+        };
       }
 
-      const anyText = rule.labelPatterns?.some((p) => p.test(packet.fullText));
+      if (!scopedDocumentLocated(scopedContext) && !ruleAllowsGlobalFallback(rule)) {
+        return {
+          ...unableToDetermine(
+            rule,
+            packet,
+            `Could not locate scoped document for ${rule.label}.`
+          ),
+          scopedContext,
+          highlightRegions,
+        };
+      }
+
+      const anyText =
+        ruleAllowsGlobalFallback(rule) &&
+        rule.labelPatterns?.some((p) => p.test(packet.fullText));
       if (!anyText) {
-        return unableToDetermine(rule, packet, "Could not locate this section in OCR output.");
+        return {
+          ...unableToDetermine(rule, packet, "Could not locate this section in scoped OCR output."),
+          scopedContext,
+          highlightRegions,
+        };
+      }
+
+      if (!scopedSectionLocated(scopedContext) && !ruleAllowsGlobalFallback(rule)) {
+        return {
+          ...unableToDetermine(
+            rule,
+            packet,
+            `Document located but section not confirmed for ${rule.label}.`
+          ),
+          scopedContext,
+          highlightRegions,
+        };
       }
 
       return {
@@ -460,8 +695,13 @@ export function evaluateFieldWithEvidence(
         confidence: "medium",
         disposition: "not_found",
         message: `Required information not detected: ${rule.label}.`,
-        evidenceReason: "Searched packet text; section markers absent.",
+        evidenceReason: appendScopedReason(
+          "Scoped section located but required value absent.",
+          scopedContext
+        ),
         pageEvidence: valueEvidence,
+        scopedContext,
+        highlightRegions,
       };
     }
   }

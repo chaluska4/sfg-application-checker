@@ -55,6 +55,15 @@ export function OcrDebugDiagnostics({ debug }: OcrDebugDiagnosticsProps) {
             <Metric label="Total lines" value={String(debug.totalLines)} />
             <Metric label="Total selection marks" value={String(debug.totalSelectionMarks)} />
             <Metric label="OCR returned pages" value={String(debug.ocrReturnedPages)} />
+            {debug.ocrDurationMs != null && (
+              <Metric label="OCR duration (ms)" value={String(debug.ocrDurationMs)} />
+            )}
+            {debug.validationDurationMs != null && (
+              <Metric label="Validation duration (ms)" value={String(debug.validationDurationMs)} />
+            )}
+            {debug.ignoredPageCount != null && debug.ignoredPageCount > 0 && (
+              <Metric label="Ignored admin pages" value={String(debug.ignoredPageCount)} />
+            )}
           </div>
 
           {debug.ocrError && (
@@ -85,7 +94,8 @@ export function OcrDebugDiagnostics({ debug }: OcrDebugDiagnosticsProps) {
                   <th className="px-2 py-2 font-semibold">Lines</th>
                   <th className="px-2 py-2 font-semibold">Marks</th>
                   <th className="px-2 py-2 font-semibold">Confidence</th>
-                  <th className="px-2 py-2 font-semibold">Readable</th>
+                  <th className="px-2 py-2 font-semibold">Ignored</th>
+                  <th className="px-2 py-2 font-semibold">Reason</th>
                   <th className="px-2 py-2 font-semibold">Masked snippet</th>
                 </tr>
               </thead>
@@ -102,6 +112,10 @@ export function OcrDebugDiagnostics({ debug }: OcrDebugDiagnosticsProps) {
                       <ConfidenceBadge value={page.averageConfidence} />
                     </td>
                     <td className="px-2 py-2">{page.hasReadableText ? "Yes" : "No"}</td>
+                    <td className="px-2 py-2">{page.isIgnored ? "Yes" : "No"}</td>
+                    <td className="max-w-xs px-2 py-2 text-[11px] text-gray-500">
+                      {page.classificationReason ?? "—"}
+                    </td>
                     <td className="max-w-xs px-2 py-2 text-[11px] leading-relaxed text-gray-600">
                       {page.firstTextSnippetMasked || <span className="italic text-gray-400">empty</span>}
                     </td>

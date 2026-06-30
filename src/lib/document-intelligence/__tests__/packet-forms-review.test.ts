@@ -20,7 +20,7 @@ function emptyScannedPage(pageNumber: number): PageAnalysis {
 }
 
 describe("packet forms review", () => {
-  it("includes later-page form guidance for a 34-page scanned packet", () => {
+  it("includes conditional form guidance for a 34-page scanned packet", () => {
     const pages: PageAnalysis[] = Array.from({ length: 34 }, (_, index) =>
       emptyScannedPage(index + 1)
     );
@@ -28,31 +28,31 @@ describe("packet forms review", () => {
     const items = validatePacketLogic("", pages);
     const packetForms = items.filter((i) => i.section === PACKET_FORMS_SECTION);
 
-    expect(packetForms.length).toBeGreaterThanOrEqual(8);
+    expect(packetForms.length).toBeGreaterThanOrEqual(4);
 
     const transfer = packetForms.find((i) => i.ruleId === "packet-form-transfer");
     const replacement = packetForms.find((i) => i.ruleId === "packet-form-replacement-notice");
     const comparison = packetForms.find((i) => i.ruleId === "packet-form-disclosure-comparison");
-    const electronic = packetForms.find((i) => i.ruleId === "packet-form-electronic-transactions");
-    const privacy = packetForms.find((i) => i.ruleId === "packet-form-privacy-notice");
     const fax = packetForms.find((i) => i.ruleId === "packet-form-fax-confirmation");
 
     expect(transfer?.status).toBe("conditional_review");
     expect(replacement?.status).toBe("conditional_review");
     expect(comparison?.status).toBe("conditional_review");
-    expect(electronic?.status).toBe("ocr_unreadable");
-    expect(privacy?.status).toBe("ocr_unreadable");
     expect(fax?.status).toBe("ocr_unreadable");
 
     expect(transfer?.expectedPageLabel).toBe("Typical Page Range 15-18");
     expect(replacement?.expectedPageLabel).toBe("Typical Page Range 19-22");
     expect(comparison?.expectedPageLabel).toBe("Typical Page Range 23-26");
-    expect(electronic?.expectedPageLabel).toBe("Typical Page Range 28");
     expect(fax?.expectedPageLabel).toBe("Typical Page Range 34");
 
     expect(transfer?.actualPage).toBeNull();
     expect(packetForms.every((i) => i.status !== "missing")).toBe(true);
     expect(packetForms.every((i) => i.locationConfidence === "template")).toBe(true);
+
+    const electronic = items.find((i) => i.ruleId === "electronic-transactions");
+    const privacy = items.find((i) => i.ruleId === "privacy-notice");
+    expect(electronic?.status).toBe("ocr_unreadable");
+    expect(privacy?.status).toBe("ocr_unreadable");
   });
 
   it("does not duplicate superseded conditional rules in the main sections", () => {

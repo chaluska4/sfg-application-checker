@@ -20,10 +20,14 @@ import { FORM_NAME, equitrustMarketEarlyNjRules } from "./templates/equitrust-ma
 import { comparePageGroups, resolveFindingLocation } from "./resolve-finding-page";
 import type { OcrProvider } from "./ocr";
 import { deriveExtractionMode, resolveOcrProvider } from "./ocr";
-import { appendPacketFormsReview, isRuleConditionUndetermined } from "./packet-forms-review";
+import { appendPacketFormsReview, isRuleConditionUndetermined, PACKET_FORMS_SECTION, shouldIncludePacketFormsReview } from "./packet-forms-review";
+import { compileEquitrustImageOnlyOverlayRules } from "./rule-config";
 import { evaluateFieldWithEvidence, packetHasUsableText } from "./finding-evidence";
 import { getStatusDisplayLabel } from "../review-display";
 import { buildOcrDebugInfo, isOcrDebugEnabled } from "./ocr/ocr-debug";
+import { computeEvidenceScore } from "./evidence-scorer";
+import { buildFindingExplanation } from "./finding-explanation";
+import { getConfigurableRuleById } from "./rule-config";
 
 const DISCLAIMER =
   "Automated review supports manual due diligence. Final submission readiness must be confirmed by an authorized SFG reviewer.";
@@ -48,8 +52,13 @@ export async function runDocumentIntelligence(
   const ocrProvider =
     options?.ocrProvider !== undefined ? options.ocrProvider : resolveOcrProvider();
 
+  const pipelineStart = performance.now();
+
   const { pages, pageCount, fullText, hasEmbeddedText, hasOcrText, ocrProviderName, ocrDiagnostics } =
     await extractPdfPages(pdfBuffer, { ocrProvider, fileName });
+
+  const ocrDurationMs = Math.round(performance.now() - pipelineStart);
+  const validationStart = performance.now();
   const checkboxes = detectCheckboxes(pages);
   const signatures = detectSignatures(pages);
   const dates = detectDates(pages);
@@ -74,6 +83,7 @@ export async function runDocumentIntelligence(
   };
 
   const items = validatePacket(packet, rules);
+  const validationDurationMs = Math.round(performance.now() - validationStart);
   const summary = summarize(items);
   const status = determineStatus(items, extractionMode, packet);
   const completionScore = calculateScore(items);
@@ -98,7 +108,8 @@ export async function runDocumentIntelligence(
       pages,
       ocrProviderName,
       ocrDiagnostics,
-      items
+      items,
+      { ocrDurationMs, validationDurationMs }
     );
   }
 
@@ -112,7 +123,22 @@ export function runValidationOnPacket(
   return validatePacket(packet, rules);
 }
 
+export function validatePacketWithRules(
+  packet: DocumentPacket,
+  rules: ValidationRule[]
+): ValidationResultItem[] {
+  return evaluateRules(packet, rules);
+}
+
 function validatePacket(
+  packet: DocumentPacket,
+  rules: ValidationRule[]
+): ValidationResultItem[] {
+  const items = evaluateRules(packet, rules);
+  return appendPacketFormsReviewWithOverlay(items, packet);
+}
+
+function evaluateRules(
   packet: DocumentPacket,
   rules: ValidationRule[]
 ): ValidationResultItem[] {
@@ -160,7 +186,24 @@ function validatePacket(
     items.push(evaluateRule(rule, packet));
   }
 
-  return appendPacketFormsReview(items, packet);
+  return items;
+}
+
+function appendPacketFormsReviewWithOverlay(
+  items: ValidationResultItem[],
+  packet: DocumentPacket
+): ValidationResultItem[] {
+  const merged = appendPacketFormsReview(items, packet);
+  if (!shouldIncludePacketFormsReview(packet)) return merged;
+
+  const overlayItems = evaluateRules(packet, compileEquitrustImageOnlyOverlayRules()).map(
+    (item) => ({
+      ...item,
+      section: PACKET_FORMS_SECTION,
+    })
+  );
+
+  return [...merged, ...overlayItems];
 }
 
 function isConditionActive(rule: ValidationRule, packet: DocumentPacket): boolean {
@@ -207,6 +250,40 @@ function makeItem(
       ? packet.pages.find((p) => p.pageNumber === location.actualPage)
       : undefined;
 
+  const statusDisplay = getStatusDisplayLabel(status);
+  const scoreBreakdown = computeEvidenceScore({
+    ocrConfidence: pageMeta?.ocrConfidence ?? confidence,
+    classificationConfidence: pageMeta?.classificationConfidence ?? "medium",
+    classificationScore: pageMeta?.classificationScore,
+    scopedContext: evidenceResult?.scopedContext,
+    hasSelectionMark: Boolean(
+      pageMeta?.ocrSelectionMarks?.some((mark) => mark.state === "selected")
+    ),
+    hasValueEvidence: evidenceResult?.hasValueEvidence,
+    status,
+  });
+
+  const configuredRule = getConfigurableRuleById(rule.id);
+  const explanation = buildFindingExplanation({
+    label: rule.label,
+    statusDisplay,
+    expectedDocument: configuredRule
+      ? location.expectedDocument
+      : location.expectedDocument,
+    expectedSection: configuredRule?.requiredSection ?? rule.section,
+    scopedContext: evidenceResult?.scopedContext,
+    evidenceSnippet: evidenceResult?.evidenceSnippet,
+    confidenceScore: scoreBreakdown.confidenceScore,
+  });
+
+  const mergedEvidenceReason = [
+    explanation.reasonSummary,
+    evidenceResult?.evidenceReason,
+    scoreBreakdown.factors.length ? `Factors: ${scoreBreakdown.factors.join("; ")}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return {
     ruleId: rule.id,
     label: rule.label,
@@ -227,12 +304,18 @@ function makeItem(
     expectedPageLabel: location.expectedPageLabel,
     page: location.actualPage,
     pageLabel: location.pageLabel,
-    boundingBox: evidence.boundingBox ?? null,
+    boundingBox:
+      evidence.boundingBox ?? evidenceResult?.highlightRegions?.[0]?.boundingBox ?? null,
     evidenceSnippet: evidenceResult?.evidenceSnippet ?? null,
-    evidenceReason: evidenceResult?.evidenceReason ?? message ?? null,
+    evidenceReason: mergedEvidenceReason || message || null,
     findingDisposition: evidenceResult?.disposition ?? null,
     detectedFormName: evidenceResult?.detectedFormName ?? location.detectedFormName ?? null,
-    statusDisplay: getStatusDisplayLabel(status),
+    statusDisplay,
+    confidenceScore: scoreBreakdown.confidenceScore,
+    validationTrace: evidenceResult?.scopedContext?.stages ?? null,
+    highlightRegions: evidenceResult?.highlightRegions ?? null,
+    expectedSummary: explanation.expectedSummary,
+    foundSummary: explanation.foundSummary,
   };
 }
 

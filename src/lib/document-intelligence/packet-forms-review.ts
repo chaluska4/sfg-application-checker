@@ -59,41 +59,6 @@ const PACKET_FORM_SPECS: PacketFormReviewSpec[] = [
     condition: "replacement",
     documentType: "disclosure_comparison",
   },
-  {
-    id: "packet-form-authorization-hold",
-    label: "Authorization to Hold Issue for Multiple Premiums",
-    requiredStatus: "conditional",
-    locationKey: "authorizationHoldIssue",
-    documentType: "application_page_1",
-  },
-  {
-    id: "packet-form-electronic-transactions",
-    label: "Electronic Transactions and Disclosures Agreement",
-    requiredStatus: "supporting",
-    locationKey: "electronicTransactions",
-    documentType: "unknown",
-  },
-  {
-    id: "packet-form-trail-commission",
-    label: "Trail Commission Election",
-    requiredStatus: "supporting",
-    locationKey: "trailCommissionElection",
-    documentType: "unknown",
-  },
-  {
-    id: "packet-form-privacy-notice",
-    label: "Privacy Notice",
-    requiredStatus: "supporting",
-    locationKey: "privacyNotice",
-    documentType: "unknown",
-  },
-  {
-    id: "packet-form-fax-confirmation",
-    label: "Fax Confirmation / Supporting Documents",
-    requiredStatus: "supporting",
-    locationKey: "faxConfirmation",
-    documentType: "unknown",
-  },
 ];
 
 export function shouldIncludePacketFormsReview(packet: DocumentPacket): boolean {

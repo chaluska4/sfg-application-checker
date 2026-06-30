@@ -551,6 +551,11 @@ export const RULE_LOCATION_KEYS: Record<string, keyof typeof equitrustMarketEarl
   "replacement-notice": "replacementQuestions",
   "disclosure-comparison": "disclosureComparison",
   "transfer-form": "transfer",
+  "electronic-transactions": "electronicTransactions",
+  "hold-issue": "authorizationHoldIssue",
+  "trail-commission": "trailCommissionElection",
+  "privacy-notice": "privacyNotice",
+  "packet-form-fax-confirmation": "faxConfirmation",
 };
 
 export function getLocationForRule(ruleId: string): ReviewItemLocation | null {
