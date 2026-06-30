@@ -4,6 +4,7 @@ import { pageTextConfidence } from "./confidence";
 import { classifyPage } from "./classify-pages";
 import type { OcrProvider } from "./ocr";
 import { enrichPagesWithOcr } from "./ocr";
+import { clonePdfArrayBuffer } from "@/lib/pdf-buffer";
 
 const MIN_TEXT_CHARS = 20;
 
@@ -24,7 +25,8 @@ export async function extractPdfPages(
   ocrProviderName: string;
   ocrDiagnostics?: import("./ocr/ocr-dev-log").OcrDiagnostics;
 }> {
-  const pdf = await getDocumentProxy(new Uint8Array(pdfBuffer));
+  const parseBuffer = clonePdfArrayBuffer(pdfBuffer);
+  const pdf = await getDocumentProxy(new Uint8Array(parseBuffer));
   const { totalPages, text } = await extractText(pdf, { mergePages: false });
   const pageTexts = Array.isArray(text) ? text : [text];
 
@@ -69,7 +71,7 @@ export async function extractPdfPages(
     pages,
     options?.fileName ?? "document.pdf",
     ocrProvider,
-    pdfBuffer
+    clonePdfArrayBuffer(pdfBuffer)
   );
 
   return {

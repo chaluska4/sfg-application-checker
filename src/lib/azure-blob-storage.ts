@@ -17,6 +17,7 @@ import {
   MAX_PDF_SIZE_ERROR,
   sanitizeFileName,
 } from "@/lib/upload-security";
+import { clonePdfArrayBuffer } from "@/lib/pdf-buffer";
 
 export { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
 
@@ -249,7 +250,7 @@ export async function downloadBlobToBuffer(
       durationMs: Date.now() - startedAt,
     });
 
-    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+    return clonePdfArrayBuffer(buffer);
   } catch (error) {
     if (error instanceof BlobStorageError) {
       logAzureBlobEvent({

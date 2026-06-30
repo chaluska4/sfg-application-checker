@@ -4,6 +4,7 @@ import { normalizeText } from "../extract-pdf-text";
 import { pageTextConfidence } from "../confidence";
 import type { OcrProvider } from "./ocr-provider";
 import type { OcrBoundingBox, OcrTextLine } from "./types";
+import { clonePdfArrayBuffer } from "@/lib/pdf-buffer";
 import { type OcrDiagnostics, logOcrDiagnostics, sanitizeOcrError } from "./ocr-dev-log";
 
 export function findOcrBoundingBoxForPatterns(
@@ -62,10 +63,11 @@ export async function enrichPagesWithOcr(
 
   let ocrResult;
   try {
+    const ocrPdfBuffer = pdfBuffer ? clonePdfArrayBuffer(pdfBuffer) : undefined;
     ocrResult = await provider.recognize({
       fileName,
       pages: ocrCandidates.map((page) => ({ pageNumber: page.pageNumber })),
-      pdfBuffer,
+      pdfBuffer: ocrPdfBuffer,
     });
   } catch (error) {
     diagnostics.error = sanitizeOcrError(error);
