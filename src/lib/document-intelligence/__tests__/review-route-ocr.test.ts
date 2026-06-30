@@ -77,4 +77,28 @@ describe("POST /api/review OCR wiring", () => {
       })
     );
   });
+
+  it("returns JSON when processing fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    runDocumentIntelligenceMock.mockRejectedValueOnce(new Error("Review timed out before completion"));
+
+    const { POST } = await import("../../../app/api/review/route");
+
+    const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
+    const file = new File([pdfBytes], "scan.pdf", { type: "application/pdf" });
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const request = new Request("http://localhost/api/review", {
+      method: "POST",
+      body: formData,
+    });
+
+    const response = await POST(request as import("next/server").NextRequest);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.status).toBe(504);
+    await expect(response.json()).resolves.toEqual({
+      error: "The review took too long to complete. Try a smaller PDF or try again in a moment.",
+    });
+  });
 });

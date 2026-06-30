@@ -8,6 +8,7 @@ import { UploadCard } from "@/components/UploadCard";
 import { ResultsDashboard } from "@/components/ResultsDashboard";
 import type { ReviewResult } from "@/lib/validation/types";
 import { isPdfWithinSizeLimit, MAX_PDF_SIZE_ERROR } from "@/lib/upload-security";
+import { ReviewApiError, submitReviewPdf } from "@/lib/review-api-client";
 import {
   canShowUploadUI,
   logUploadRenderDecision,
@@ -43,24 +44,14 @@ export default function HomeClient({ devBypassSession }: HomeClientProps) {
     }
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetch("/api/review", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Review failed. Please try again.");
-      }
-
+      const data = await submitReviewPdf(file);
       setResult(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+      if (err instanceof ReviewApiError) {
+        setError(err.message);
+      } else {
+        setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+      }
     } finally {
       setIsLoading(false);
     }

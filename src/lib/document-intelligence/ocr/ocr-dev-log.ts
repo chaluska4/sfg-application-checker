@@ -25,6 +25,15 @@ export function sanitizeOcrError(error: unknown): string {
 }
 
 export function logOcrDiagnostics(diagnostics: OcrDiagnostics): void {
+  if (diagnostics.error) {
+    console.error("[document-intelligence][ocr] OCR failed; continuing with manual review", {
+      provider: diagnostics.providerSelected,
+      candidatePages: diagnostics.candidatePageCount,
+      error: diagnostics.error,
+    });
+    return;
+  }
+
   if (process.env.NODE_ENV !== "development") return;
 
   console.info(
@@ -34,7 +43,6 @@ export function logOcrDiagnostics(diagnostics: OcrDiagnostics): void {
     `candidatePages=${diagnostics.candidatePageCount}`,
     `returnedPages=${diagnostics.returnedPageCount}`,
     `lines=${diagnostics.lineCount}`,
-    `enrichedPages=${diagnostics.enrichedPageCount}`,
-    diagnostics.error ? `error=${diagnostics.error}` : ""
+    `enrichedPages=${diagnostics.enrichedPageCount}`
   );
 }

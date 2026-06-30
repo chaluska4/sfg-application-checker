@@ -13,6 +13,7 @@ import {
   isLocalAuthBypassEnabled,
   logLocalAuthBypassWarningOnce,
 } from "@/lib/local-auth-bypass";
+import { createReviewErrorResponse } from "@/lib/review-route-errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -29,7 +30,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch (error) {
+      return createReviewErrorResponse(error, { stage: "read-form-data" });
+    }
+
     const file = formData.get("file");
 
     if (!file || !(file instanceof File)) {
@@ -41,16 +48,18 @@ export async function POST(request: NextRequest) {
     }
 
     if (!isPdfWithinSizeLimit(file.size)) {
-      return NextResponse.json({ error: MAX_PDF_SIZE_ERROR }, { status: 400 });
+      return NextResponse.json({ error: MAX_PDF_SIZE_ERROR }, { status: 413 });
     }
 
-    const arrayBuffer = await file.arrayBuffer();
+    let arrayBuffer: ArrayBuffer;
+    try {
+      arrayBuffer = await file.arrayBuffer();
+    } catch (error) {
+      return createReviewErrorResponse(error, { stage: "read-file-buffer" });
+    }
 
     if (!isPdfBuffer(arrayBuffer)) {
-      return NextResponse.json(
-        { error: "File must be a valid PDF." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "File must be a valid PDF." }, { status: 400 });
     }
 
     const ocrProvider = resolveOcrProvider();
@@ -63,11 +72,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("Review processing failed:", message);
-    return NextResponse.json(
-      { error: "Failed to process PDF. Please ensure the file is a valid PDF." },
-      { status: 500 }
-    );
+    return createReviewErrorResponse(error, { stage: "process-review" });
   }
 }
