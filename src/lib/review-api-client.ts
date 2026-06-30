@@ -1,6 +1,9 @@
 import type { ReviewResult } from "@/lib/validation/types";
-import { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
-import type { UploadPdfResponse } from "@/lib/review-request-types";
+import {
+  AZURE_BLOB_STORAGE_SETUP_ERROR,
+  AZURE_DIRECT_UPLOAD_ERROR,
+} from "@/lib/azure-blob-messages";
+import type { UploadConfigResponse, UploadUrlResponse } from "@/lib/review-request-types";
 import {
   DIRECT_UPLOAD_MAX_BYTES,
   MAX_PDF_SIZE_ERROR,
@@ -12,11 +15,6 @@ export class ReviewApiError extends Error {
     super(message);
     this.name = "ReviewApiError";
   }
-}
-
-export interface UploadConfigResponse {
-  blobStorageConfigured: boolean;
-  directUploadMaxBytes: number;
 }
 
 function isJsonContentType(contentType: string): boolean {
@@ -109,7 +107,7 @@ export async function parseReviewApiResponse(response: Response): Promise<Review
 }
 
 async function fetchUploadConfig(): Promise<UploadConfigResponse> {
-  const response = await fetch("/api/upload", {
+  const response = await fetch("/api/upload-url", {
     credentials: "include",
     cache: "no-store",
   });
@@ -121,21 +119,36 @@ async function fetchUploadConfig(): Promise<UploadConfigResponse> {
   return (await response.json()) as UploadConfigResponse;
 }
 
-async function parseUploadResponse(response: Response): Promise<UploadPdfResponse> {
+async function parseUploadUrlResponse(response: Response): Promise<UploadUrlResponse> {
   if (!response.ok) {
     throw new ReviewApiError(await readReviewApiError(response));
   }
 
-  const data = (await response.json()) as UploadPdfResponse;
-  if (
-    typeof data.blobReference !== "string" ||
-    typeof data.fileName !== "string" ||
-    typeof data.fileSize !== "number"
-  ) {
+  const data = (await response.json()) as UploadUrlResponse;
+  if (typeof data.uploadUrl !== "string" || typeof data.blobName !== "string") {
+    throw new ReviewApiError("Received an invalid upload response. Please try again.");
+  }
+
+  if (data.uploadUrl.includes("AccountKey=")) {
     throw new ReviewApiError("Received an invalid upload response. Please try again.");
   }
 
   return data;
+}
+
+async function uploadPdfDirectlyToAzure(file: File, uploadUrl: string): Promise<void> {
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "x-ms-blob-type": "BlockBlob",
+      "Content-Type": "application/pdf",
+    },
+    body: file,
+  });
+
+  if (!response.ok) {
+    throw new ReviewApiError(AZURE_DIRECT_UPLOAD_ERROR);
+  }
 }
 
 async function submitReviewPdfDirect(file: File): Promise<ReviewResult> {
@@ -157,25 +170,27 @@ async function submitReviewPdfViaAzureBlob(file: File): Promise<ReviewResult> {
     throw new ReviewApiError(AZURE_BLOB_STORAGE_SETUP_ERROR);
   }
 
-  const uploadFormData = new FormData();
-  uploadFormData.append("file", file);
-
-  const uploadResponse = await fetch("/api/upload", {
+  const uploadUrlResponse = await fetch("/api/upload-url", {
     method: "POST",
-    body: uploadFormData,
+    headers: { "Content-Type": "application/json" },
     credentials: "include",
+    body: JSON.stringify({
+      filename: file.name,
+      contentType: file.type || "application/pdf",
+      size: file.size,
+    }),
   });
 
-  const uploadData = await parseUploadResponse(uploadResponse);
+  const uploadData = await parseUploadUrlResponse(uploadUrlResponse);
+  await uploadPdfDirectlyToAzure(file, uploadData.uploadUrl);
 
   const reviewResponse = await fetch("/api/review", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify({
-      blobReference: uploadData.blobReference,
-      fileName: uploadData.fileName,
-      fileSize: uploadData.fileSize,
+      blobName: uploadData.blobName,
+      originalFilename: file.name,
     }),
   });
 

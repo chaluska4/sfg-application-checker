@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
 import {
   buildReviewBlobReference,
-  isAllowedBlobReference,
+  isAllowedBlobName,
   isAzureBlobStorageConfigured,
+  sanitizeBlobName,
 } from "@/lib/azure-blob-storage";
+import { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
 import { logAzureBlobEvent } from "@/lib/azure-blob-log";
-import { parseReviewBlobReference } from "@/lib/review-request";
+import { parseReviewBlobRequest, parseUploadUrlRequest, validateUploadUrlRequest } from "@/lib/review-request";
 import { DIRECT_UPLOAD_MAX_BYTES, shouldUseBlobUpload } from "@/lib/upload-security";
 
 describe("azure blob storage", () => {
@@ -37,32 +38,52 @@ describe("azure blob storage", () => {
     expect(isAzureBlobStorageConfigured()).toBe(true);
   });
 
-  it("builds private review blob references under reviews/", () => {
-    const reference = buildReviewBlobReference("scan.pdf");
-    expect(reference.startsWith("reviews/")).toBe(true);
-    expect(reference.endsWith(".pdf")).toBe(true);
-    expect(isAllowedBlobReference(reference)).toBe(true);
+  it("builds private review blob names under reviews/", () => {
+    const blobName = sanitizeBlobName("scan.pdf");
+    expect(blobName.startsWith("reviews/")).toBe(true);
+    expect(blobName.endsWith(".pdf")).toBe(true);
+    expect(isAllowedBlobName(blobName)).toBe(true);
+    expect(buildReviewBlobReference("scan.pdf")).toMatch(/^reviews\/[0-9a-f-]{36}-scan\.pdf$/i);
   });
 
   it("rejects path traversal and external blob references", () => {
-    expect(isAllowedBlobReference("../secrets.pdf")).toBe(false);
-    expect(isAllowedBlobReference("reviews/../secrets.pdf")).toBe(false);
-    expect(isAllowedBlobReference("https://evil.example.com/file.pdf")).toBe(false);
-    expect(isAllowedBlobReference("reviews/not-a-valid-reference")).toBe(false);
+    expect(isAllowedBlobName("../secrets.pdf")).toBe(false);
+    expect(isAllowedBlobName("reviews/../secrets.pdf")).toBe(false);
+    expect(isAllowedBlobName("https://evil.example.com/file.pdf")).toBe(false);
+    expect(isAllowedBlobName("reviews/not-a-valid-reference")).toBe(false);
   });
 
-  it("parses valid blob review references", () => {
-    const blobReference = buildReviewBlobReference("scan.pdf");
+  it("parses valid upload-url metadata and review blob requests", () => {
+    const blobName = sanitizeBlobName("scan.pdf");
+
     expect(
-      parseReviewBlobReference({
-        blobReference,
-        fileName: "scan.pdf",
-        fileSize: 9_500_000,
+      parseUploadUrlRequest({
+        filename: "scan.pdf",
+        contentType: "application/pdf",
+        size: 9_500_000,
       })
     ).toEqual({
-      blobReference,
-      fileName: "scan.pdf",
-      fileSize: 9_500_000,
+      filename: "scan.pdf",
+      contentType: "application/pdf",
+      size: 9_500_000,
+    });
+
+    expect(
+      validateUploadUrlRequest({
+        filename: "scan.pdf",
+        contentType: "application/pdf",
+        size: 9_500_000,
+      })
+    ).toBeNull();
+
+    expect(
+      parseReviewBlobRequest({
+        blobName,
+        originalFilename: "scan.pdf",
+      })
+    ).toEqual({
+      blobName,
+      originalFilename: "scan.pdf",
     });
   });
 
@@ -81,15 +102,13 @@ describe("azure blob storage", () => {
 
     logAzureBlobEvent({
       requestId: "req-123",
-      action: "upload",
+      action: "sas-create",
       success: true,
-      fileSizeBytes: 9_500_000,
       durationMs: 42,
     });
 
     const payload = infoSpy.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(payload.requestId).toBe("req-123");
-    expect(payload.fileSizeBytes).toBe(9_500_000);
     expect(JSON.stringify(payload)).not.toMatch(/AccountKey|SharedAccessSignature|ssn|123-45-6789/i);
   });
 });

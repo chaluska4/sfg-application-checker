@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildReviewBlobReference } from "@/lib/azure-blob-storage";
+import { sanitizeBlobName } from "@/lib/azure-blob-storage";
 
 const processReviewPdfMock = vi.fn(async () => ({
   formName: "Test",
@@ -23,12 +23,12 @@ const processReviewPdfMock = vi.fn(async () => ({
   groupedItems: [],
 }));
 
-const downloadPdfFromAzureBlobMock = vi.fn(async () => {
+const downloadBlobToBufferMock = vi.fn(async () => {
   const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
   return bytes.buffer;
 });
 
-const deleteAzureReviewBlobMock = vi.fn(async () => undefined);
+const deleteBlobIfExistsMock = vi.fn(async () => undefined);
 
 vi.mock("@/lib/review-pdf-processor", () => ({
   processReviewPdf: (...args: unknown[]) => processReviewPdfMock(...args),
@@ -42,8 +42,8 @@ vi.mock("@/lib/azure-blob-storage", async (importOriginal) => {
   return {
     ...actual,
     isAzureBlobStorageConfigured: vi.fn(() => true),
-    downloadPdfFromAzureBlob: (...args: unknown[]) => downloadPdfFromAzureBlobMock(...args),
-    deleteAzureReviewBlob: (...args: unknown[]) => deleteAzureReviewBlobMock(...args),
+    downloadBlobToBuffer: (...args: unknown[]) => downloadBlobToBufferMock(...args),
+    deleteBlobIfExists: (...args: unknown[]) => deleteBlobIfExistsMock(...args),
   };
 });
 
@@ -56,28 +56,24 @@ describe("POST /api/review Azure blob references", () => {
     vi.clearAllMocks();
   });
 
-  it("reviews a PDF from an Azure blob reference and deletes the blob afterward", async () => {
+  it("reviews a PDF from blobName JSON and deletes the blob afterward", async () => {
     const { POST } = await import("../../../app/api/review/route");
-    const blobReference = buildReviewBlobReference("scan.pdf");
+    const blobName = sanitizeBlobName("scan.pdf");
 
     const request = new Request("http://localhost/api/review", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        blobReference,
-        fileName: "scan.pdf",
-        fileSize: 9_500_000,
+        blobName,
+        originalFilename: "scan.pdf",
       }),
     });
 
     const response = await POST(request as import("next/server").NextRequest);
     expect(response.status).toBe(200);
-    expect(downloadPdfFromAzureBlobMock).toHaveBeenCalledTimes(1);
+    expect(downloadBlobToBufferMock).toHaveBeenCalledTimes(1);
     expect(processReviewPdfMock).toHaveBeenCalledWith(expect.any(ArrayBuffer), "scan.pdf");
-    expect(deleteAzureReviewBlobMock).toHaveBeenCalledWith(
-      blobReference,
-      expect.any(String)
-    );
+    expect(deleteBlobIfExistsMock).toHaveBeenCalledWith(blobName, expect.any(String));
   });
 
   it("deletes the blob when review processing fails", async () => {
@@ -85,24 +81,20 @@ describe("POST /api/review Azure blob references", () => {
     processReviewPdfMock.mockRejectedValueOnce(new Error("Review timed out before completion"));
 
     const { POST } = await import("../../../app/api/review/route");
-    const blobReference = buildReviewBlobReference("scan.pdf");
+    const blobName = sanitizeBlobName("scan.pdf");
 
     const request = new Request("http://localhost/api/review", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        blobReference,
-        fileName: "scan.pdf",
-        fileSize: 9_500_000,
+        blobName,
+        originalFilename: "scan.pdf",
       }),
     });
 
     const response = await POST(request as import("next/server").NextRequest);
     expect(response.status).toBe(504);
-    expect(deleteAzureReviewBlobMock).toHaveBeenCalledWith(
-      blobReference,
-      expect.any(String)
-    );
+    expect(deleteBlobIfExistsMock).toHaveBeenCalledWith(blobName, expect.any(String));
   });
 
   it("rejects direct uploads above the direct upload threshold", async () => {

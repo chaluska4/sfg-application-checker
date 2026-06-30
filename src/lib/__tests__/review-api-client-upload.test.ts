@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
+import { AZURE_BLOB_STORAGE_SETUP_ERROR, AZURE_DIRECT_UPLOAD_ERROR } from "@/lib/azure-blob-messages";
 import { submitReviewPdf } from "@/lib/review-api-client";
 import { DIRECT_UPLOAD_MAX_BYTES, shouldUseBlobUpload } from "@/lib/upload-security";
 
-describe("submitReviewPdf Azure upload routing", () => {
+describe("submitReviewPdf Azure SAS upload routing", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -11,13 +11,7 @@ describe("submitReviewPdf Azure upload routing", () => {
 
   it("requires Azure blob storage for large PDFs", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input) === "/api/upload" && !String(input).includes("POST")) {
-        return new Response(JSON.stringify({ blobStorageConfigured: false }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      if (String(input) === "/api/upload") {
+      if (String(input) === "/api/upload-url") {
         return new Response(JSON.stringify({ blobStorageConfigured: false }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -34,39 +28,50 @@ describe("submitReviewPdf Azure upload routing", () => {
     await expect(submitReviewPdf(file)).rejects.toThrow(AZURE_BLOB_STORAGE_SETUP_ERROR);
   });
 
-  it("uploads large PDFs through /api/upload then reviews by blob reference", async () => {
-    const blobReference = "reviews/11111111-1111-4111-8111-111111111111-scan.pdf";
+  it("requests SAS URL metadata then uploads directly to Azure before review", async () => {
+    const blobName = "reviews/11111111-1111-4111-8111-111111111111-large.pdf";
+    const uploadUrl = "https://account.blob.core.windows.net/container/reviews/file.pdf?sig=test";
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
-      if (url === "/api/upload" && init?.method === undefined) {
+      if (url === "/api/upload-url" && init?.method === undefined) {
         return new Response(JSON.stringify({ blobStorageConfigured: true }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
       }
 
-      if (url === "/api/upload" && init?.method === "POST") {
-        return new Response(
-          JSON.stringify({
-            blobReference,
-            fileName: "large.pdf",
-            fileSize: 9_500_000,
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }
-        );
+      if (url === "/api/upload-url" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        expect(body).toEqual({
+          filename: "large.pdf",
+          contentType: "application/pdf",
+          size: 9_500_000,
+        });
+
+        return new Response(JSON.stringify({ uploadUrl, blobName }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url === uploadUrl && init?.method === "PUT") {
+        expect(init.headers).toMatchObject({
+          "x-ms-blob-type": "BlockBlob",
+          "Content-Type": "application/pdf",
+        });
+        return new Response(null, { status: 201 });
       }
 
       if (url === "/api/review" && init?.headers) {
         const headers = new Headers(init.headers);
         expect(headers.get("content-type")).toBe("application/json");
         const body = JSON.parse(String(init.body));
-        expect(body.blobReference).toBe(blobReference);
-        expect(body).not.toHaveProperty("blobUrl");
+        expect(body).toEqual({
+          blobName,
+          originalFilename: "large.pdf",
+        });
 
         return new Response(JSON.stringify({ fileName: "large.pdf", pageCount: 3 }), {
           status: 200,
@@ -83,7 +88,44 @@ describe("submitReviewPdf Azure upload routing", () => {
 
     const result = await submitReviewPdf(file);
     expect(result).toEqual({ fileName: "large.pdf", pageCount: 3 });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("surfaces Azure direct upload failures", async () => {
+    const uploadUrl = "https://account.blob.core.windows.net/container/reviews/file.pdf?sig=test";
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/upload-url" && !init?.method) {
+        return new Response(JSON.stringify({ blobStorageConfigured: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url === "/api/upload-url" && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            uploadUrl,
+            blobName: "reviews/11111111-1111-4111-8111-111111111111-large.pdf",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url === uploadUrl) {
+        return new Response("Upload failed", { status: 403, statusText: "Forbidden" });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File(["%PDF-1.4"], "large.pdf", { type: "application/pdf" });
+    Object.defineProperty(file, "size", { value: 9_500_000 });
+
+    await expect(submitReviewPdf(file)).rejects.toThrow(AZURE_DIRECT_UPLOAD_ERROR);
   });
 
   it("uses direct multipart upload for small PDFs", async () => {
