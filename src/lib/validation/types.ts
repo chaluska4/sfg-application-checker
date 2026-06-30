@@ -8,4 +8,6 @@ export type {
   ValidationResultItem,
   LocationConfidence,
   ExtractionMode,
+  OcrDebugInfo,
+  OcrDebugPageInfo,
 } from "../document-intelligence/types";

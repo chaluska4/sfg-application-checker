@@ -21,6 +21,8 @@ export async function extractPdfPages(
   fullText: string;
   hasEmbeddedText: boolean;
   hasOcrText: boolean;
+  ocrProviderName: string;
+  ocrDiagnostics?: import("./ocr/ocr-dev-log").OcrDiagnostics;
 }> {
   const pdf = await getDocumentProxy(new Uint8Array(pdfBuffer));
   const { totalPages, text } = await extractText(pdf, { mergePages: false });
@@ -59,10 +61,11 @@ export async function extractPdfPages(
       fullText: pages.map((p) => p.rawText).join("\n\n"),
       hasEmbeddedText: anyText,
       hasOcrText: false,
+      ocrProviderName: ocrProvider?.name ?? "disabled",
     };
   }
 
-  const { pages: enrichedPages } = await enrichPagesWithOcr(
+  const { pages: enrichedPages, diagnostics } = await enrichPagesWithOcr(
     pages,
     options?.fileName ?? "document.pdf",
     ocrProvider,
@@ -75,6 +78,8 @@ export async function extractPdfPages(
     fullText: enrichedPages.map((p) => p.rawText).join("\n\n"),
     hasEmbeddedText: anyText,
     hasOcrText: enrichedPages.some((p) => Boolean(p.hasOcrText)),
+    ocrProviderName: ocrProvider.name,
+    ocrDiagnostics: diagnostics,
   };
 }
 

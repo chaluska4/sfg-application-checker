@@ -12,6 +12,7 @@ import {
   shouldShowStandaloneDisclaimer,
 } from "@/lib/review-display";
 import { ArrowLeft, FileText, AlertCircle, Info } from "lucide-react";
+import { OcrDebugDiagnostics } from "./OcrDebugDiagnostics";
 
 interface ResultsDashboardProps {
   result: ReviewResult;
@@ -108,6 +109,8 @@ export function ResultsDashboard({ result, onReset }: ResultsDashboardProps) {
       {presentGroups.length > 0 && issueGroups.length > 0 && (
         <ChecklistGroup groups={presentGroups} title="Confirmed Present" showPresent />
       )}
+
+      {result.debug && <OcrDebugDiagnostics debug={result.debug} />}
     </div>
   );
 }
