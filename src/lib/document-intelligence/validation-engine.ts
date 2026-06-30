@@ -23,6 +23,7 @@ import { deriveExtractionMode, resolveOcrProvider } from "./ocr";
 import { appendPacketFormsReview, isRuleConditionUndetermined } from "./packet-forms-review";
 import { evaluateFieldWithEvidence, packetHasUsableText } from "./finding-evidence";
 import { getStatusDisplayLabel } from "../review-display";
+import { buildOcrDebugInfo, isOcrDebugEnabled } from "./ocr/ocr-debug";
 
 const DISCLAIMER =
   "Automated review supports manual due diligence. Final submission readiness must be confirmed by an authorized SFG reviewer.";
@@ -47,10 +48,8 @@ export async function runDocumentIntelligence(
   const ocrProvider =
     options?.ocrProvider !== undefined ? options.ocrProvider : resolveOcrProvider();
 
-  const { pages, pageCount, fullText, hasEmbeddedText, hasOcrText } = await extractPdfPages(
-    pdfBuffer,
-    { ocrProvider, fileName }
-  );
+  const { pages, pageCount, fullText, hasEmbeddedText, hasOcrText, ocrProviderName, ocrDiagnostics } =
+    await extractPdfPages(pdfBuffer, { ocrProvider, fileName });
   const checkboxes = detectCheckboxes(pages);
   const signatures = detectSignatures(pages);
   const dates = detectDates(pages);
@@ -79,7 +78,7 @@ export async function runDocumentIntelligence(
   const status = determineStatus(items, extractionMode, packet);
   const completionScore = calculateScore(items);
 
-  return {
+  const result: ReviewResult = {
     formName: FORM_NAME,
     fileName,
     completionScore,
@@ -93,6 +92,17 @@ export async function runDocumentIntelligence(
     items,
     groupedItems: groupItems(items),
   };
+
+  if (isOcrDebugEnabled()) {
+    result.debug = buildOcrDebugInfo(
+      pages,
+      ocrProviderName,
+      ocrDiagnostics,
+      items
+    );
+  }
+
+  return result;
 }
 
 export function runValidationOnPacket(

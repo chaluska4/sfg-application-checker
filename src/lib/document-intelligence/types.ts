@@ -1,4 +1,5 @@
 import type { OcrBoundingBox } from "./ocr/types";
+import type { OcrDebugInfo } from "./ocr/ocr-debug";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -237,4 +238,9 @@ export interface GroupedChecklist {
 // UI-compatible aliases
 export type ChecklistItem = ValidationResultItem;
 export type ChecklistItemStatus = FieldStatus;
-export type ReviewResult = ValidationResult & { groupedItems: GroupedChecklist[] };
+export type ReviewResult = ValidationResult & {
+  groupedItems: GroupedChecklist[];
+  debug?: OcrDebugInfo;
+};
+
+export type { OcrDebugInfo, OcrDebugPageInfo } from "./ocr/ocr-debug";
