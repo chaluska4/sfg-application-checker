@@ -2,12 +2,25 @@ import { NextResponse } from "next/server";
 import { sanitizeOcrError } from "@/lib/document-intelligence/ocr/ocr-dev-log";
 import { MAX_PDF_SIZE_ERROR } from "@/lib/upload-security";
 
+interface StatusError extends Error {
+  status: number;
+}
+
+function isStatusError(error: unknown): error is StatusError {
+  return (
+    error instanceof Error &&
+    "status" in error &&
+    typeof (error as StatusError).status === "number"
+  );
+}
+
 export type ReviewErrorKind =
   | "payload_too_large"
   | "timeout"
   | "invalid_pdf"
   | "azure"
   | "ocr"
+  | "blob_storage"
   | "processing"
   | "unknown";
 
@@ -128,6 +141,22 @@ export function createReviewErrorResponse(
   error: unknown,
   context?: Record<string, unknown>
 ): NextResponse<{ error: string }> {
+  if (isStatusError(error)) {
+    const kind =
+      error.name === "BlobStorageError"
+        ? "blob_storage"
+        : error.status === 413
+          ? "payload_too_large"
+          : "invalid_pdf";
+
+    logReviewRouteError(
+      { kind, status: error.status, clientMessage: error.message },
+      error,
+      context
+    );
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+
   const details = classifyReviewError(error);
   logReviewRouteError(details, error, context);
   return NextResponse.json({ error: details.clientMessage }, { status: details.status });
@@ -139,6 +168,6 @@ export function createReviewPayloadTooLargeResponse(): NextResponse<{ error: str
     status: 413,
     clientMessage: MAX_PDF_SIZE_ERROR,
   };
-  logReviewRouteError(details, new Error("Request payload too large"), { source: "middleware" });
+  logReviewRouteError(details, new Error("Request payload too large"), { source: "review-route" });
   return NextResponse.json({ error: details.clientMessage }, { status: details.status });
 }

@@ -1,11 +1,22 @@
 import type { ReviewResult } from "@/lib/validation/types";
-import { MAX_PDF_SIZE_ERROR } from "@/lib/upload-security";
+import { AZURE_BLOB_STORAGE_SETUP_ERROR } from "@/lib/azure-blob-messages";
+import type { UploadPdfResponse } from "@/lib/review-request-types";
+import {
+  DIRECT_UPLOAD_MAX_BYTES,
+  MAX_PDF_SIZE_ERROR,
+  shouldUseBlobUpload,
+} from "@/lib/upload-security";
 
 export class ReviewApiError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ReviewApiError";
   }
+}
+
+export interface UploadConfigResponse {
+  blobStorageConfigured: boolean;
+  directUploadMaxBytes: number;
 }
 
 function isJsonContentType(contentType: string): boolean {
@@ -25,6 +36,10 @@ export function getFriendlyReviewHttpError(status: number, bodyText: string): st
 
   if (status === 401) {
     return "Your session has expired. Please sign in and try again.";
+  }
+
+  if (status === 503 && /azure blob storage/i.test(normalized)) {
+    return AZURE_BLOB_STORAGE_SETUP_ERROR;
   }
 
   if (status === 504 || /timed?\s*out/i.test(normalized) || /timeout/i.test(normalized)) {
@@ -93,7 +108,37 @@ export async function parseReviewApiResponse(response: Response): Promise<Review
   }
 }
 
-export async function submitReviewPdf(file: File): Promise<ReviewResult> {
+async function fetchUploadConfig(): Promise<UploadConfigResponse> {
+  const response = await fetch("/api/upload", {
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new ReviewApiError(await readReviewApiError(response));
+  }
+
+  return (await response.json()) as UploadConfigResponse;
+}
+
+async function parseUploadResponse(response: Response): Promise<UploadPdfResponse> {
+  if (!response.ok) {
+    throw new ReviewApiError(await readReviewApiError(response));
+  }
+
+  const data = (await response.json()) as UploadPdfResponse;
+  if (
+    typeof data.blobReference !== "string" ||
+    typeof data.fileName !== "string" ||
+    typeof data.fileSize !== "number"
+  ) {
+    throw new ReviewApiError("Received an invalid upload response. Please try again.");
+  }
+
+  return data;
+}
+
+async function submitReviewPdfDirect(file: File): Promise<ReviewResult> {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -105,3 +150,44 @@ export async function submitReviewPdf(file: File): Promise<ReviewResult> {
 
   return parseReviewApiResponse(response);
 }
+
+async function submitReviewPdfViaAzureBlob(file: File): Promise<ReviewResult> {
+  const config = await fetchUploadConfig();
+  if (!config.blobStorageConfigured) {
+    throw new ReviewApiError(AZURE_BLOB_STORAGE_SETUP_ERROR);
+  }
+
+  const uploadFormData = new FormData();
+  uploadFormData.append("file", file);
+
+  const uploadResponse = await fetch("/api/upload", {
+    method: "POST",
+    body: uploadFormData,
+    credentials: "include",
+  });
+
+  const uploadData = await parseUploadResponse(uploadResponse);
+
+  const reviewResponse = await fetch("/api/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      blobReference: uploadData.blobReference,
+      fileName: uploadData.fileName,
+      fileSize: uploadData.fileSize,
+    }),
+  });
+
+  return parseReviewApiResponse(reviewResponse);
+}
+
+export async function submitReviewPdf(file: File): Promise<ReviewResult> {
+  if (shouldUseBlobUpload(file.size)) {
+    return submitReviewPdfViaAzureBlob(file);
+  }
+
+  return submitReviewPdfDirect(file);
+}
+
+export { DIRECT_UPLOAD_MAX_BYTES, shouldUseBlobUpload };

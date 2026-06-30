@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
 import {
   formatFileSize,
+  isPdfFile,
   isPdfWithinSizeLimit,
   MAX_PDF_SIZE_ERROR,
   MAX_PDF_SIZE_LABEL,
@@ -22,8 +23,8 @@ interface UploadCardProps {
   devBypassActive?: boolean;
 }
 
-function isPdfFile(file: File): boolean {
-  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+function isPdfFileType(file: File): boolean {
+  return isPdfFile(file);
 }
 
 function logUploadControlState(
@@ -66,7 +67,7 @@ export function UploadCard({
       return;
     }
 
-    if (!isPdfFile(file)) {
+    if (!isPdfFileType(file)) {
       setSelectedFile(null);
       setFileError("File must be a PDF.");
       return;

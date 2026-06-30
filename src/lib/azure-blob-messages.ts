@@ -1,0 +1,2 @@
+export const AZURE_BLOB_STORAGE_SETUP_ERROR =
+  "Large PDF uploads require Azure Blob Storage. Set AZURE_STORAGE_CONNECTION_STRING and AZURE_STORAGE_CONTAINER_NAME.";

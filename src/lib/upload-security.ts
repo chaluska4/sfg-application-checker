@@ -1,9 +1,33 @@
 /** Maximum allowed PDF upload size (25 MB). */
 export const MAX_PDF_SIZE = 25 * 1024 * 1024;
 
+/**
+ * PDFs larger than this must use Vercel Blob client upload (Vercel request body limits
+ * are ~4.5 MB for direct multipart posts to serverless functions).
+ */
+export const DIRECT_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+
+export const DIRECT_UPLOAD_MAX_LABEL = "4 MB";
+
 export const MAX_PDF_SIZE_ERROR = "File size must not exceed 25 MB.";
 
 export const MAX_PDF_SIZE_LABEL = "25 MB";
+
+export function shouldUseBlobUpload(fileSizeInBytes: number): boolean {
+  return fileSizeInBytes > DIRECT_UPLOAD_MAX_BYTES;
+}
+
+export function isPdfFileName(fileName: string): boolean {
+  return fileName.toLowerCase().endsWith(".pdf");
+}
+
+export function isPdfMimeType(mimeType: string): boolean {
+  return mimeType === "application/pdf";
+}
+
+export function isPdfFile(file: File): boolean {
+  return isPdfMimeType(file.type) || isPdfFileName(file.name);
+}
 
 export function isPdfWithinSizeLimit(sizeInBytes: number): boolean {
   return sizeInBytes > 0 && sizeInBytes <= MAX_PDF_SIZE;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const runDocumentIntelligenceMock = vi.fn(async () => ({
+const processReviewPdfMock = vi.fn(async () => ({
   formName: "Test",
   fileName: "scan.pdf",
   completionScore: 0,
@@ -22,29 +22,15 @@ const runDocumentIntelligenceMock = vi.fn(async () => ({
   groupedItems: [],
 }));
 
-const resolveOcrProviderMock = vi.fn(() => ({
-  name: "azure",
-  isAvailable: () => true,
-  recognize: vi.fn(),
+vi.mock("@/lib/review-pdf-processor", () => ({
+  processReviewPdf: (...args: unknown[]) => processReviewPdfMock(...args),
+  ReviewPdfValidationError: class ReviewPdfValidationError extends Error {
+    status = 400;
+  },
 }));
 
-vi.mock("@/lib/document-intelligence", () => ({
-  runDocumentIntelligence: (...args: unknown[]) => runDocumentIntelligenceMock(...args),
-}));
-
-vi.mock("@/lib/document-intelligence/ocr/resolve-ocr-provider", () => ({
-  resolveOcrProvider: () => resolveOcrProviderMock(),
-}));
-
-vi.mock("@/lib/auth", () => ({
-  COOKIE_NAME: "sfg_session",
-  verifySessionToken: vi.fn(async () => true),
-}));
-
-vi.mock("next/headers", () => ({
-  cookies: vi.fn(async () => ({
-    get: () => ({ value: "valid-token" }),
-  })),
+vi.mock("@/lib/review-auth", () => ({
+  requireAuthenticatedReviewAccess: vi.fn(async () => null),
 }));
 
 describe("POST /api/review OCR wiring", () => {
@@ -67,20 +53,12 @@ describe("POST /api/review OCR wiring", () => {
 
     const response = await POST(request as import("next/server").NextRequest);
     expect(response.status).toBe(200);
-    expect(resolveOcrProviderMock).toHaveBeenCalledTimes(1);
-    expect(runDocumentIntelligenceMock).toHaveBeenCalledWith(
-      expect.any(ArrayBuffer),
-      "scan.pdf",
-      undefined,
-      expect.objectContaining({
-        ocrProvider: expect.objectContaining({ name: "azure" }),
-      })
-    );
+    expect(processReviewPdfMock).toHaveBeenCalledWith(expect.any(ArrayBuffer), "scan.pdf");
   });
 
   it("returns JSON when processing fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    runDocumentIntelligenceMock.mockRejectedValueOnce(new Error("Review timed out before completion"));
+    processReviewPdfMock.mockRejectedValueOnce(new Error("Review timed out before completion"));
 
     const { POST } = await import("../../../app/api/review/route");
 

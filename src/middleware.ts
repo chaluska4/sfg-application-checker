@@ -6,7 +6,7 @@ import {
   logLocalAuthBypassWarningOnce,
 } from "@/lib/local-auth-bypass";
 import { MAX_PDF_SIZE } from "@/lib/upload-security";
-import { createReviewPayloadTooLargeResponse } from "@/lib/review-route-errors";
+import { createReviewPayloadTooLargeResponse } from "@/lib/review-middleware-errors";
 
 /** Extra bytes for multipart boundaries and field metadata. */
 const REVIEW_UPLOAD_OVERHEAD_BYTES = 1024 * 1024;
@@ -27,6 +27,11 @@ function isStaticAsset(pathname: string): boolean {
 
 function isReviewUploadTooLarge(request: NextRequest): boolean {
   if (request.method !== "POST" || request.nextUrl.pathname !== "/api/review") {
+    return false;
+  }
+
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
     return false;
   }
 
