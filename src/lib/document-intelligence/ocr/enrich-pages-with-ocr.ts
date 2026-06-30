@@ -4,6 +4,7 @@ import { normalizeText } from "../extract-pdf-text";
 import { pageTextConfidence } from "../confidence";
 import type { OcrProvider } from "./ocr-provider";
 import type { OcrBoundingBox, OcrTextLine } from "./types";
+import { type OcrDiagnostics, logOcrDiagnostics, sanitizeOcrError } from "./ocr-dev-log";
 
 export function findOcrBoundingBoxForPatterns(
   lines: OcrTextLine[] | undefined,
@@ -19,24 +20,60 @@ export function findOcrBoundingBoxForPatterns(
   return null;
 }
 
+export interface OcrEnrichmentResult {
+  pages: PageAnalysis[];
+  diagnostics: OcrDiagnostics;
+}
+
 export async function enrichPagesWithOcr(
   pages: PageAnalysis[],
   fileName: string,
-  provider: OcrProvider
-): Promise<PageAnalysis[]> {
-  if (!provider.isAvailable()) return pages;
+  provider: OcrProvider,
+  pdfBuffer?: ArrayBuffer
+): Promise<OcrEnrichmentResult> {
+  const diagnostics: OcrDiagnostics = {
+    providerSelected: provider.name,
+    attempted: false,
+    candidatePageCount: 0,
+    returnedPageCount: 0,
+    lineCount: 0,
+    enrichedPageCount: 0,
+  };
+
+  if (!provider.isAvailable()) {
+    logOcrDiagnostics(diagnostics);
+    return { pages, diagnostics };
+  }
 
   const ocrCandidates = pages.filter((page) => !page.hasEmbeddedText);
-  if (ocrCandidates.length === 0) return pages;
+  diagnostics.candidatePageCount = ocrCandidates.length;
 
-  const ocrResult = await provider.recognize({
-    fileName,
-    pages: ocrCandidates.map((page) => ({ pageNumber: page.pageNumber })),
-  });
+  if (ocrCandidates.length === 0) {
+    logOcrDiagnostics(diagnostics);
+    return { pages, diagnostics };
+  }
+
+  diagnostics.attempted = true;
+
+  let ocrResult;
+  try {
+    ocrResult = await provider.recognize({
+      fileName,
+      pages: ocrCandidates.map((page) => ({ pageNumber: page.pageNumber })),
+      pdfBuffer,
+    });
+  } catch (error) {
+    diagnostics.error = sanitizeOcrError(error);
+    logOcrDiagnostics(diagnostics);
+    return { pages, diagnostics };
+  }
+
+  diagnostics.returnedPageCount = ocrResult.pages.length;
+  diagnostics.lineCount = ocrResult.pages.reduce((sum, page) => sum + page.lines.length, 0);
 
   const ocrByPage = new Map(ocrResult.pages.map((page) => [page.pageNumber, page]));
 
-  return pages.map((page) => {
+  const enrichedPages = pages.map((page) => {
     const ocrPage = ocrByPage.get(page.pageNumber);
     if (!ocrPage || page.hasEmbeddedText) return page;
 
@@ -45,6 +82,8 @@ export async function enrichPagesWithOcr(
 
     const normalizedText = normalizeText(rawText);
     const { classification, confidence } = classifyPage(normalizedText, page.pageNumber);
+
+    diagnostics.enrichedPageCount += 1;
 
     return {
       ...page,
@@ -59,6 +98,9 @@ export async function enrichPagesWithOcr(
       classificationConfidence: confidence,
     };
   });
+
+  logOcrDiagnostics(diagnostics);
+  return { pages: enrichedPages, diagnostics };
 }
 
 export function packetHasOcrText(pages: PageAnalysis[]): boolean {

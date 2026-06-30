@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
 import {
   formatFileSize,
+  isPdfFile,
   isPdfWithinSizeLimit,
   MAX_PDF_SIZE_ERROR,
   MAX_PDF_SIZE_LABEL,
@@ -18,17 +19,45 @@ const features = [
 interface UploadCardProps {
   onReview: (file: File) => void;
   isLoading: boolean;
+  uploadEnabled?: boolean;
+  devBypassActive?: boolean;
 }
 
-function isPdfFile(file: File): boolean {
-  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+function isPdfFileType(file: File): boolean {
+  return isPdfFile(file);
 }
 
-export function UploadCard({ onReview, isLoading }: UploadCardProps) {
+function logUploadControlState(
+  uploadEnabled: boolean,
+  isLoading: boolean,
+  devBypassActive: boolean
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+  if (!uploadEnabled) {
+    console.warn("[sfg-upload] Upload controls disabled: uploadEnabled=false");
+    return;
+  }
+  if (isLoading) {
+    console.info("[sfg-upload] Upload controls visible; review in progress.");
+    return;
+  }
+  console.info(
+    "[sfg-upload] Upload controls ready.",
+    devBypassActive ? "(LOCAL_AUTH_BYPASS)" : ""
+  );
+}
+
+export function UploadCard({
+  onReview,
+  isLoading,
+  uploadEnabled = true,
+  devBypassActive = false,
+}: UploadCardProps) {
+  const inputId = useId();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const controlsDisabled = !uploadEnabled || isLoading;
 
   const handleFile = (file: File | null) => {
     setFileError(null);
@@ -38,7 +67,7 @@ export function UploadCard({ onReview, isLoading }: UploadCardProps) {
       return;
     }
 
-    if (!isPdfFile(file)) {
+    if (!isPdfFileType(file)) {
       setSelectedFile(null);
       setFileError("File must be a PDF.");
       return;
@@ -51,16 +80,20 @@ export function UploadCard({ onReview, isLoading }: UploadCardProps) {
     }
 
     setSelectedFile(file);
+    if (process.env.NODE_ENV === "development") {
+      console.info("[sfg-upload] PDF selected:", file.name, `(${formatFileSize(file.size)})`);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    if (controlsDisabled) return;
     setDragOver(false);
     handleFile(e.dataTransfer.files[0] ?? null);
   };
 
   const handleReview = () => {
-    if (!selectedFile || isLoading) return;
+    if (!selectedFile || controlsDisabled) return;
 
     if (!isPdfWithinSizeLimit(selectedFile.size)) {
       setFileError(MAX_PDF_SIZE_ERROR);
@@ -70,6 +103,10 @@ export function UploadCard({ onReview, isLoading }: UploadCardProps) {
 
     onReview(selectedFile);
   };
+
+  useEffect(() => {
+    logUploadControlState(uploadEnabled, isLoading, devBypassActive);
+  }, [uploadEnabled, isLoading, devBypassActive]);
 
   return (
     <div className="rounded-3xl bg-white p-8 shadow-xl sm:p-12">
@@ -87,6 +124,12 @@ export function UploadCard({ onReview, isLoading }: UploadCardProps) {
         unsigned fields, and conditional requirements before submission.
       </p>
 
+      {devBypassActive && process.env.NODE_ENV === "development" && (
+        <p className="mx-auto mt-4 max-w-lg rounded-xl bg-navy/[0.04] px-4 py-2 text-center text-xs text-gray-600">
+          Local dev mode: authentication bypass active.
+        </p>
+      )}
+
       <ul className="mx-auto mt-6 max-w-md space-y-2.5">
         {features.map((feature) => (
           <li key={feature} className="flex items-start gap-3 text-sm text-gray-700">
@@ -99,14 +142,16 @@ export function UploadCard({ onReview, isLoading }: UploadCardProps) {
       <div
         onDragOver={(e) => {
           e.preventDefault();
-          setDragOver(true);
+          if (!controlsDisabled) setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         className={`mt-8 rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-colors ${
-          dragOver
-            ? "border-gold bg-gold/5"
-            : "border-gray-200 bg-gray-50/80 hover:border-gold/40"
+          controlsDisabled
+            ? "cursor-not-allowed border-gray-200 bg-gray-100 opacity-60"
+            : dragOver
+              ? "border-gold bg-gold/5"
+              : "border-gray-200 bg-gray-50/80 hover:border-gold/40"
         }`}
       >
         <p className="text-sm font-medium text-navy">Upload Annuity Application PDF</p>
@@ -130,28 +175,30 @@ export function UploadCard({ onReview, isLoading }: UploadCardProps) {
           </p>
         )}
 
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".pdf,application/pdf"
-          className="hidden"
-          onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
-        />
-
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={isLoading}
-          className="mt-4 text-sm font-semibold text-navy underline-offset-2 hover:underline disabled:opacity-50"
+        <label
+          htmlFor={inputId}
+          className={`mt-4 inline-block text-sm font-semibold text-navy underline-offset-2 ${
+            controlsDisabled
+              ? "cursor-not-allowed opacity-50"
+              : "cursor-pointer hover:underline"
+          }`}
         >
           Browse Files
-        </button>
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          accept=".pdf,application/pdf"
+          className="sr-only"
+          disabled={controlsDisabled}
+          onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+        />
       </div>
 
       <button
         type="button"
         onClick={handleReview}
-        disabled={!selectedFile || isLoading}
+        disabled={!selectedFile || controlsDisabled}
         className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-navy py-4 text-base font-semibold text-white transition-colors hover:bg-navy-light disabled:cursor-not-allowed disabled:opacity-50"
       >
         {isLoading ? (

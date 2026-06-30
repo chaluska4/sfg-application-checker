@@ -1,8 +1,21 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/auth";
+import {
+  isLocalAuthBypassEnabled,
+  logLocalAuthBypassWarningOnce,
+} from "@/lib/local-auth-bypass";
+import { MAX_PDF_SIZE } from "@/lib/upload-security";
+import { createReviewPayloadTooLargeResponse } from "@/lib/review-middleware-errors";
 
-const PUBLIC_API_ROUTES = new Set(["/api/auth/login", "/api/auth/logout"]);
+/** Extra bytes for multipart boundaries and field metadata. */
+const REVIEW_UPLOAD_OVERHEAD_BYTES = 1024 * 1024;
+
+const PUBLIC_API_ROUTES = new Set([
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/auth/session",
+]);
 
 function isStaticAsset(pathname: string): boolean {
   return (
@@ -12,10 +25,38 @@ function isStaticAsset(pathname: string): boolean {
   );
 }
 
+function isReviewUploadTooLarge(request: NextRequest): boolean {
+  if (request.method !== "POST" || request.nextUrl.pathname !== "/api/review") {
+    return false;
+  }
+
+  const contentType = request.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return false;
+  }
+
+  const contentLength = request.headers.get("content-length");
+  if (!contentLength) return false;
+
+  const size = Number.parseInt(contentLength, 10);
+  if (!Number.isFinite(size)) return false;
+
+  return size > MAX_PDF_SIZE + REVIEW_UPLOAD_OVERHEAD_BYTES;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isStaticAsset(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (isReviewUploadTooLarge(request)) {
+    return createReviewPayloadTooLargeResponse();
+  }
+
+  if (isLocalAuthBypassEnabled()) {
+    logLocalAuthBypassWarningOnce();
     return NextResponse.next();
   }
 

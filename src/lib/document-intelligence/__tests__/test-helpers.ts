@@ -63,7 +63,7 @@ export async function validatePacketWithMockOcr(
   mockOcr: MockOcrProviderOptions
 ) {
   const provider = createMockOcrProvider(mockOcr);
-  const enriched = await enrichPagesWithOcr(scannedPages, "test.pdf", provider);
+  const { pages: enriched } = await enrichPagesWithOcr(scannedPages, "test.pdf", provider);
   const fullText = enriched.map((p) => p.rawText).join("\n\n");
   return runValidationOnPacket(buildPacket(fullText, enriched), equitrustMarketEarlyNjRules);
 }
