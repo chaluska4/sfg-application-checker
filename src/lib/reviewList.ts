@@ -3,16 +3,22 @@ import { comparePageGroups } from "@/lib/document-intelligence/resolve-finding-p
 
 const SEVERITY_ORDER: Record<FieldStatus, number> = {
   missing: 0,
-  conditional_review: 1,
-  needs_manual_verification: 2,
-  present: 3,
-  not_applicable: 4,
+  incomplete: 1,
+  ocr_unreadable: 2,
+  low_confidence: 3,
+  conditional_review: 4,
+  needs_manual_verification: 5,
+  present: 6,
+  not_applicable: 7,
 };
 
 const ISSUE_STATUSES: FieldStatus[] = [
   "missing",
+  "incomplete",
   "needs_manual_verification",
   "conditional_review",
+  "low_confidence",
+  "ocr_unreadable",
 ];
 
 export function buildMasterReviewGroups(items: ValidationResultItem[]): GroupedChecklist[] {
@@ -64,6 +70,7 @@ export function buildMasterReviewGroups(items: ValidationResultItem[]): GroupedC
 
 export function groupAllItems(items: ValidationResultItem[]): GroupedChecklist[] {
   const map = new Map<string, GroupedChecklist>();
+
   for (const item of items) {
     const key = `${item.pageLabel}::${item.section}`;
     if (!map.has(key)) {
@@ -81,6 +88,7 @@ export function groupAllItems(items: ValidationResultItem[]): GroupedChecklist[]
     }
     map.get(key)!.items.push(item);
   }
+
   return [...map.values()].sort((a, b) =>
     comparePageGroups(
       {

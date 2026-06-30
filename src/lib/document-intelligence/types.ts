@@ -7,9 +7,18 @@ export type IssueSeverity = "required" | "recommended";
 export type FieldStatus =
   | "present"
   | "missing"
+  | "incomplete"
   | "needs_manual_verification"
   | "conditional_review"
+  | "low_confidence"
+  | "ocr_unreadable"
   | "not_applicable";
+
+export type FindingDisposition =
+  | "found_complete"
+  | "found_incomplete"
+  | "not_found"
+  | "unable_to_determine";
 
 export type ReviewStatus =
   | "ready-to-submit"
@@ -52,6 +61,7 @@ export interface PageAnalysis {
   ocrConfidence?: ConfidenceLevel;
   /** Retained for evidence resolution; not exposed on API responses. */
   ocrLines?: { text: string; confidence: ConfidenceLevel; boundingBox?: OcrBoundingBox }[];
+  ocrSelectionMarks?: { state: "selected" | "unselected"; confidence: ConfidenceLevel; boundingBox?: OcrBoundingBox }[];
   classification: PageClassification;
   classificationConfidence: ConfidenceLevel;
 }
@@ -61,6 +71,7 @@ export interface DetectedCheckbox {
   checked: boolean;
   page: number | null;
   confidence: ConfidenceLevel;
+  source?: "text" | "selection_mark";
 }
 
 export interface DetectedSignature {
@@ -178,6 +189,13 @@ export interface ValidationResultItem {
   pageLabel: string;
   /** Populated when OCR/evidence supplies geometry for the finding */
   boundingBox?: OcrBoundingBox | null;
+  /** OCR excerpt supporting the finding (PII masked) */
+  evidenceSnippet?: string | null;
+  evidenceReason?: string | null;
+  findingDisposition?: FindingDisposition | null;
+  detectedFormName?: string | null;
+  /** UI label: PASS, MISSING, INCOMPLETE, etc. */
+  statusDisplay?: string | null;
 }
 
 export interface ValidationResult {
@@ -193,8 +211,11 @@ export interface ValidationResult {
   summary: {
     present: number;
     missing: number;
+    incomplete: number;
     needsManualVerification: number;
     conditionalReview: number;
+    lowConfidence: number;
+    ocrUnreadable: number;
     notApplicable: number;
     total: number;
   };

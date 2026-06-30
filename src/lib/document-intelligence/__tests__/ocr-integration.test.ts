@@ -55,7 +55,7 @@ describe("OCR integration", () => {
     expect(owner?.confidence).toBe("medium");
     expect(owner?.boundingBox).toEqual(ownerBBox);
     expect(owner?.expectedPageLabel).toBeNull();
-    expect(owner?.pageLabel).toContain("Actual Page");
+    expect(owner?.pageLabel).toContain("Found on Page");
   });
 
   it("masks SSN from mocked OCR text in validation messages", async () => {
@@ -85,7 +85,7 @@ describe("OCR integration", () => {
     expect(owner?.actualPage).toBeNull();
     expect(owner?.locationConfidence).toBe("template");
     expect(owner?.expectedPageLabel).toBe("Expected Page 2");
-    expect(owner?.status).toBe("needs_manual_verification");
+    expect(owner?.status).toBe("ocr_unreadable");
   });
 
   it("mock provider only OCRs pages without embedded text", async () => {

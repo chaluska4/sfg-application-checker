@@ -21,8 +21,11 @@ function mockResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
     summary: {
       present: 0,
       missing: 0,
-      needsManualVerification: 10,
+      incomplete: 0,
+      needsManualVerification: 0,
       conditionalReview: 0,
+      lowConfidence: 10,
+      ocrUnreadable: 0,
       notApplicable: 0,
       total: 10,
     },
@@ -45,9 +48,9 @@ describe("review-display", () => {
 
   it("builds a consolidated intelligence notice for scanned packets", () => {
     const notice = buildDocumentIntelligenceNotice(mockResult());
-    expect(notice).toContain("Image-only / scanned pages require manual verification");
+    expect(notice).toContain("Scanned packet reviewed from OCR evidence");
     expect(notice).toContain("34-page packet");
-    expect(notice).toContain("Expected Location guidance");
+    expect(notice).toContain("LOW_CONFIDENCE");
     expect(notice).toContain("Automated review supports manual due diligence");
     expect(notice).toContain("authorized SFG reviewer");
   });

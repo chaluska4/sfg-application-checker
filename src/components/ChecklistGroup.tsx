@@ -1,16 +1,19 @@
 import type { ValidationResultItem, GroupedChecklist, FieldStatus, LocationConfidence } from "@/lib/validation/types";
-import { isRedundantFindingMessage } from "@/lib/review-display";
-import { CheckCircle2, XCircle, Eye, HelpCircle, MinusCircle, Info, MapPin } from "lucide-react";
+import { getStatusDisplayLabel, isRedundantFindingMessage } from "@/lib/review-display";
+import { CheckCircle2, XCircle, Eye, HelpCircle, MinusCircle, Info, MapPin, AlertTriangle, FileQuestion } from "lucide-react";
 
 const statusConfig: Record<
   FieldStatus,
   { icon: typeof CheckCircle2; iconClass: string; rowClass: string; badgeClass: string; badge: string }
 > = {
-  present: { icon: CheckCircle2, iconClass: "text-success", rowClass: "bg-success-light/40 border-success/15", badgeClass: "bg-success-light text-success", badge: "Present" },
-  missing: { icon: XCircle, iconClass: "text-red-accent", rowClass: "bg-red-light/40 border-red-accent/15", badgeClass: "bg-red-light text-red-accent", badge: "Missing" },
-  needs_manual_verification: { icon: Eye, iconClass: "text-navy", rowClass: "bg-navy/5 border-navy/10", badgeClass: "bg-navy/10 text-navy", badge: "Needs Manual Verification" },
-  conditional_review: { icon: HelpCircle, iconClass: "text-warning", rowClass: "bg-warning-light/40 border-warning/15", badgeClass: "bg-warning-light text-warning", badge: "Conditional Review" },
-  not_applicable: { icon: MinusCircle, iconClass: "text-gray-400", rowClass: "bg-gray-50 border-gray-200", badgeClass: "bg-gray-100 text-gray-500", badge: "Not Applicable" },
+  present: { icon: CheckCircle2, iconClass: "text-success", rowClass: "bg-success-light/40 border-success/15", badgeClass: "bg-success-light text-success", badge: "PASS" },
+  missing: { icon: XCircle, iconClass: "text-red-accent", rowClass: "bg-red-light/40 border-red-accent/15", badgeClass: "bg-red-light text-red-accent", badge: "MISSING" },
+  incomplete: { icon: AlertTriangle, iconClass: "text-warning", rowClass: "bg-warning-light/40 border-warning/15", badgeClass: "bg-warning-light text-warning", badge: "INCOMPLETE" },
+  needs_manual_verification: { icon: Eye, iconClass: "text-navy", rowClass: "bg-navy/5 border-navy/10", badgeClass: "bg-navy/10 text-navy", badge: "MANUAL REVIEW" },
+  conditional_review: { icon: HelpCircle, iconClass: "text-warning", rowClass: "bg-warning-light/40 border-warning/15", badgeClass: "bg-warning-light text-warning", badge: "CONDITIONAL REVIEW" },
+  low_confidence: { icon: FileQuestion, iconClass: "text-navy", rowClass: "bg-navy/5 border-navy/10", badgeClass: "bg-navy/10 text-navy", badge: "LOW CONFIDENCE" },
+  ocr_unreadable: { icon: Eye, iconClass: "text-navy", rowClass: "bg-navy/5 border-navy/10", badgeClass: "bg-navy/10 text-navy", badge: "OCR UNREADABLE" },
+  not_applicable: { icon: MinusCircle, iconClass: "text-gray-400", rowClass: "bg-gray-50 border-gray-200", badgeClass: "bg-gray-100 text-gray-500", badge: "NOT APPLICABLE" },
 };
 
 function LocationGuidance({
@@ -23,6 +26,14 @@ function LocationGuidance({
   groupTypicalLocation?: string | null;
 }) {
   const locationMatchesGroup = item.locationConfidence === groupLocationConfidence;
+
+  if (item.detectedFormName) {
+    return (
+      <p className="mt-1 text-xs text-gray-600">
+        <span className="font-medium text-navy">Form:</span> {item.detectedFormName}
+      </p>
+    );
+  }
 
   if (locationMatchesGroup && groupLocationConfidence === "actual") {
     return null;
@@ -46,7 +57,7 @@ function LocationGuidance({
   if (item.locationConfidence === "actual" && item.actualPageLabel) {
     return (
       <p className="mt-1 text-xs text-gray-600">
-        <span className="font-medium text-navy">Actual Page:</span> {item.actualPageLabel}
+        <span className="font-medium text-navy">Found on:</span> {item.actualPageLabel}
       </p>
     );
   }
@@ -55,8 +66,8 @@ function LocationGuidance({
     return (
       <div className="mt-1 space-y-0.5 text-xs text-gray-600">
         <p>
-          <span className="font-medium text-navy">Expected Location:</span> {item.expectedDocument}
-          {item.expectedPageLabel ? `, ${item.expectedPageLabel}` : ""}
+          <span className="font-medium text-navy">Unable to locate in OCR:</span> {item.expectedDocument}
+          {item.expectedPageLabel ? ` · ${item.expectedPageLabel}` : ""}
         </p>
         {item.typicalLocation && (
           <p>
@@ -78,6 +89,29 @@ function LocationGuidance({
   return null;
 }
 
+function EvidenceBlock({ item }: { item: ValidationResultItem }) {
+  if (!item.evidenceSnippet && !item.evidenceReason) return null;
+
+  return (
+    <div className="mt-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-gray-600 ring-1 ring-gray-100">
+      {item.evidenceSnippet && (
+        <p>
+          <span className="font-medium text-navy">Evidence:</span> {item.evidenceSnippet}
+        </p>
+      )}
+      {item.evidenceReason && (
+        <p className={item.evidenceSnippet ? "mt-1" : ""}>
+          <span className="font-medium text-navy">Reason:</span> {item.evidenceReason}
+        </p>
+      )}
+      <p className="mt-1 text-[11px] uppercase tracking-wide text-gray-400">
+        Confidence: {item.confidence}
+        {item.statusDisplay ? ` · ${item.statusDisplay}` : ` · ${getStatusDisplayLabel(item.status)}`}
+      </p>
+    </div>
+  );
+}
+
 function ChecklistRow({
   item,
   groupLocationConfidence,
@@ -90,6 +124,7 @@ function ChecklistRow({
   const config = statusConfig[item.status];
   const Icon = config.icon;
   const showMessage = item.message && !isRedundantFindingMessage(item.message);
+  const badge = item.statusDisplay ?? config.badge;
 
   return (
     <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${config.rowClass}`}>
@@ -104,7 +139,7 @@ function ChecklistRow({
             </span>
           )}
           <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${config.badgeClass}`}>
-            {config.badge}
+            {badge}
           </span>
         </div>
         <LocationGuidance
@@ -114,10 +149,13 @@ function ChecklistRow({
         />
         {item.manualReviewHint &&
           (item.status === "needs_manual_verification" ||
-            item.status === "conditional_review") && (
+            item.status === "conditional_review" ||
+            item.status === "low_confidence" ||
+            item.status === "ocr_unreadable") && (
             <p className="mt-1.5 text-xs italic text-gray-500">{item.manualReviewHint}</p>
           )}
         {showMessage && <p className="mt-1 text-xs text-gray-600">{item.message}</p>}
+        <EvidenceBlock item={item} />
       </div>
     </div>
   );
@@ -164,12 +202,14 @@ export function ChecklistGroup({
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-label">
                   {group.locationConfidence === "actual"
-                    ? `Actual Page: ${group.pageLabel.replace("Actual Page: ", "")}`
+                    ? group.pageLabel
                     : group.locationConfidence === "template"
-                      ? "Expected Location"
+                      ? group.pageLabel.startsWith("Unable")
+                        ? group.pageLabel
+                        : "Template guidance"
                       : group.pageLabel}
                 </p>
-                {group.locationConfidence === "template" && group.expectedDocument && (
+                {group.locationConfidence === "template" && group.expectedDocument && !group.pageLabel.startsWith("Unable") && (
                   <p className="mt-1 text-sm font-medium text-navy">
                     {group.expectedDocument}
                     {group.expectedPageLabel ? ` · ${group.expectedPageLabel}` : ""}

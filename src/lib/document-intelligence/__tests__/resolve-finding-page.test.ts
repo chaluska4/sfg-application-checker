@@ -57,7 +57,7 @@ describe("resolveFindingLocation", () => {
     expect(location.locationConfidence).toBe("actual");
     expect(location.actualPage).toBe(2);
     expect(location.actualPageLabel).toBe("Page 2");
-    expect(location.pageLabel).toContain("Actual Page");
+    expect(location.pageLabel).toContain("Found on Page");
     expect(location.expectedPageLabel).toBeNull();
   });
 
